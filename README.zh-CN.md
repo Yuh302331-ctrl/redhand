@@ -199,6 +199,10 @@ $ pytest tests/ --cov=redhand          # 全量测试，约 90% 覆盖
 
 模块结构：`src/redhand/` —— `scanner.py`（目录扫描 + 影子比对） · `actors.py`（进程归属） · `journal.py`（SQLite：影子、事件、blob） · `watch.py`（引擎） · `restore.py` · `digest.py` · `cli.py` · `config.py` · `util.py`。
 
+## 生态
+
+**trueup**（[agenttrueup](https://github.com/Yuh302331-ctrl/agenttrueup)）是审计侧的搭档：它按 schema 契约只读本日志（见 [docs/JOURNAL.md](docs/JOURNAL.md)），把 AI 代理「声称做过的事」与事件流逐条对账。redhand 是摄像头，trueup 是审计师。
+
 ## Roadmap
 
 - fsevents/inotify 后端，实现亚秒级检测（轮询引擎保留为后备）

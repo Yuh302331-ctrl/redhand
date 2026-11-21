@@ -243,6 +243,14 @@ Layout: `src/redhand/` — `scanner.py` (walk + shadow diff) · `actors.py`
 `util.py`. Design rationale and the optimization backlog live in
 [docs/OPTIMIZATION.md](docs/OPTIMIZATION.md).
 
+## Ecosystem
+
+**trueup** ([agenttrueup](https://github.com/Yuh302331-ctrl/agenttrueup)) is
+the audit-side companion: it reads this journal (read-only, by schema
+contract — see [docs/JOURNAL.md](docs/JOURNAL.md)) and reconciles what AI
+agents *claimed* against the recorded event stream. redhand is the camera;
+trueup is the auditor.
+
 ## Roadmap
 
 - fsevents/inotify backend for sub-second detection (poll engine stays as fallback)
