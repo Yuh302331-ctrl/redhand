@@ -31,6 +31,24 @@ EVENT_DELETED = "deleted"
 EVENTS = (EVENT_CREATED, EVENT_MODIFIED, EVENT_DELETED)
 
 
+def _is_junction(path: str) -> bool:
+    """Windows directory junctions are reparse points that ntpath.islink
+    does not report; descending them can recurse without bound."""
+    if os.name != "nt":
+        return False
+    if hasattr(os.path, "isjunction"):
+        try:
+            return os.path.isjunction(path)
+        except OSError:
+            return False
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return bool(getattr(st, "st_file_attributes", 0)
+                & getattr(_stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
 @dataclass
 class FsEntry:
     size: int
@@ -73,8 +91,10 @@ def scan_tree(root: str, ignore: Optional[PatternSet] = None) -> Dict[str, FsEnt
         for d in sorted(dirnames):
             rel_child = f"{rel_dir}/{d}" if rel_dir else d
             full = os.path.join(dirpath, d)
-            if os.path.islink(full):
-                # record the link itself as an entry; never descend into it
+            if os.path.islink(full) or _is_junction(full):
+                # record the link/junction itself as an entry; never descend
+                # (junctions are Windows reparse points ntpath.islink misses —
+                # descending them can walk cycles unboundedly)
                 try:
                     st = os.lstat(full)
                     entries[rel_child] = FsEntry(size=st.st_size, mtime_ns=st.st_mtime_ns)
@@ -163,8 +183,25 @@ def diff_against_shadow(
                     )
                 )
             elif old["sha256"]:
+                if fs.size > hash_limit:
+                    # the file grew beyond the hash limit after seeding:
+                    # record the size change now (content unverifiable), and
+                    # the shadow's sha becomes NULL so tracking switches to
+                    # size-only from here on — never silently skip it
+                    changes.append(
+                        DetectedChange(
+                            path=path,
+                            event=EVENT_MODIFIED,
+                            old_size=int(old["size"] or 0),
+                            new_size=fs.size,
+                            old_hash=old["sha256"],
+                            new_mtime_ns=fs.mtime_ns,
+                            pre_blob_id=old["blob_id"],
+                        )
+                    )
+                    continue
                 # safe_hash resolves symlinks to their target and refuses
-                # non-regular or oversized targets instead of opening them
+                # non-regular targets instead of opening them
                 digest = safe_hash(abs_path, hash_limit)
                 if digest is None:
                     # transient read failure (EACCES) or the file vanished

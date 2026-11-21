@@ -5,6 +5,6 @@ the AI agent (or human) that made it, keeps restorable snapshots, and
 answers 'who changed this file?' with a plain markdown digest.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["__version__"]

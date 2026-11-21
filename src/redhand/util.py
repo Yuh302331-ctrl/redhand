@@ -162,26 +162,49 @@ def read_file_bytes(path: str) -> Optional[bytes]:
         return None
 
 
-def write_file_nofollow(path: str, data: bytes) -> None:
-    """Write bytes to `path` without following symlinks.
+def _is_reparse_link(path: str, st: os.stat_result) -> bool:
+    """Windows: junctions/symlinks are reparse points but ntpath.islink is
+    False for junctions. Best-effort check without requiring 3.12."""
+    if os.name != "nt":
+        return False
+    if hasattr(os.path, "isjunction"):
+        return os.path.isjunction(path)
+    return bool(getattr(st, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
-    A symlink at `path` (planted between journaling and restore) is removed
-    and replaced by a regular file — journal content must never be written
-    *through* a link to some other file.
+
+def write_file_nofollow(path: str, data: bytes) -> None:
+    """Write bytes to `path` without following symlinks (or Windows junctions).
+
+    A symlink/junction planted at `path` between journaling and restore is
+    removed and replaced by a regular file — journal content must never be
+    written *through* a link to some other file. Non-regular targets (FIFOs,
+    sockets, devices) are refused instead of opened: opening a named pipe
+    with O_WRONLY would block until a reader appears.
     """
     mode = None
     try:
         st = os.lstat(path)
-        if stat.S_ISREG(st.st_mode):
-            mode = stat.S_IMODE(st.st_mode)  # preserve permissions of the file we replace
     except OSError:
-        pass
+        st = None
+    if st is not None:
+        if stat.S_ISLNK(st.st_mode) or _is_reparse_link(path, st):
+            # POSIX: O_NOFOLLOW would ELOOP below; Windows: os.open resolves
+            # links by default, so pre-remove instead of writing through
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        elif not stat.S_ISREG(st.st_mode):
+            # FIFO/socket/device at the restore path: opening for write would
+            # block or side-effect hardware — refuse cleanly instead
+            raise OSError(errno.EINVAL, "refusing to write non-regular path", path)
+        else:
+            mode = stat.S_IMODE(st.st_mode)  # preserve permissions of the file we replace
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o644)
     except OSError as exc:
         if exc.errno == errno.ELOOP:
-            # a symlink is in the way: replace it with a regular file so the
-            # restored content lands HERE, never at the link's target
+            # a symlink appeared between lstat and open: replace it
             os.remove(path)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
         else:

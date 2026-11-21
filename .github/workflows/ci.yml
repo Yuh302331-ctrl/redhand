@@ -13,8 +13,16 @@ jobs:
       fail-fast: false
       matrix:
         # ubuntu-24.04 pinned: ubuntu-26.04 images no longer ship Python 3.9 builds
-        os: [ubuntu-24.04, macos-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
         python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        # windows covers the boundary versions only — keeps the matrix at 12 jobs
+        exclude:
+          - os: windows-latest
+            python: "3.10"
+          - os: windows-latest
+            python: "3.11"
+          - os: windows-latest
+            python: "3.12"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

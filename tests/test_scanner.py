@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
+
+import pytest
 
 from redhand.scanner import diff_against_shadow, scan_tree
 from redhand.util import PatternSet, sha256_bytes
@@ -39,6 +42,7 @@ def test_scan_tree_ignores(root):
     assert set(entries) == {"src/app.py"}
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="symlink creation needs privileges on windows")
 def test_scan_tree_skips_symlink_dirs(root):
     outside = root + "_outside"
     os.makedirs(outside)
@@ -91,7 +95,8 @@ def test_diff_created_and_deleted(root):
     rows = _shadow_of(root, entries)
 
     # no changes
-    changes, touches = diff_against_shadow(root, scan_tree(root), rows, 1024 * 1024, lambda p, s: True, _read(root))
+    changes, touches = diff_against_shadow(root, scan_tree(root), rows, 1024 * 1024,
+                                           lambda p, s: True, _read(root))
     assert changes == [] and touches == []
 
     # create + delete
@@ -110,7 +115,8 @@ def test_diff_modified_and_touch(root):
 
     # same content, new mtime -> touch, no event
     w(os.path.join(root, "a.txt"), "v1")
-    changes, touches = diff_against_shadow(root, scan_tree(root), rows, 1024 * 1024, lambda p, s: True, _read(root))
+    changes, touches = diff_against_shadow(root, scan_tree(root), rows, 1024 * 1024,
+                                           lambda p, s: True, _read(root))
     assert changes == [] and len(touches) == 1
 
     # real content change -> modified
@@ -145,12 +151,14 @@ def test_diff_big_file_size_only(root):
     time.sleep(0.02)
     with open(p, "wb") as f:
         f.write(b"y" * (3 * 1024 * 1024))
-    changes, touches = diff_against_shadow(root, scan_tree(root), rows, 1024 * 1024, lambda p, s: True, _read(root))
+    changes, touches = diff_against_shadow(root, scan_tree(root), rows, 1024 * 1024,
+                                           lambda p, s: True, _read(root))
     assert len(changes) == 1 and changes[0].event == "modified"
     assert changes[0].new_hash is None
 
     # mtime-only change on an unhashable file -> silent touch, no event
     rows_after = _shadow_of(root, scan_tree(root), hash_limit=1024 * 1024)
     os.utime(p, ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))
-    changes, touches = diff_against_shadow(root, scan_tree(root), rows_after, 1024 * 1024, lambda p, s: True, _read(root))
+    changes, touches = diff_against_shadow(root, scan_tree(root), rows_after, 1024 * 1024,
+                                           lambda p, s: True, _read(root))
     assert changes == [] and len(touches) == 1

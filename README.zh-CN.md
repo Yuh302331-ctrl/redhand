@@ -43,7 +43,7 @@ session: 5s · 12 events · 1 touches · 1 protected · 1 reverted
 - **摘要**——`redhand digest` 产出 Markdown 报告：谁在什么时候改了什么。
 - **存储克制**——快照 zlib 压缩、按内容寻址（相同字节只存一份），单文件与全局双上限 + FIFO 逐出，`forget` 可修剪。典型项目日志只有几十 KB。
 
-零运行时依赖。Python 3.9+。macOS 与 Linux。
+零运行时依赖。Python 3.9+。macOS、Linux 和 Windows。
 
 ## 安装
 
@@ -75,7 +75,7 @@ $ redhand forget --before 30d # 修剪日志
 
 ## 归属是怎么做的
 
-每个有改动的轮询周期，redhand 对进程表做快照，把配置的代理特征串（内置 20 个，可在 `config.json` 增删）与进程名、完整命令行做词边界匹配，再用 `lsof`（Linux 亦可用 `/proc/<pid>/cwd`）解析每个匹配进程的**当前工作目录**，判断它是否覆盖被改文件：
+每个有改动的轮询周期，redhand 对进程表做快照，把配置的代理特征串（内置 20 个，可在 `config.json` 增删）与进程名、完整命令行做词边界匹配，再用 `lsof`（Linux 亦可用 `/proc/<pid>/cwd`）解析每个匹配进程的**当前工作目录**，判断它是否覆盖被改文件。Windows 上没有公开 API 能读取其他进程的工作目录，因此每个代理命中一律封顶 `medium`——归属在那里只是“谁正在运行”的实时信号，不会猜测是哪一个改的文件：
 
 | 置信度 | 含义 |
 |---|---|
@@ -174,6 +174,13 @@ Restart=on-failure
 WantedBy=default.target
 ```
 
+Windows（schtasks）——管理员提示符下执行一次：
+
+```console
+$ schtasks /create /tn "redhand watch" /sc onlogon /rl limited ^
+  /tr "\"%LOCALAPPDATA%\Programs\Python\Python313\Scripts\redhand.exe\" watch --root C:\Users\you\projects"
+```
+
 注意：日志文件要放在**被监控目录之外**，否则 redhand 会忠实地把自己输出也记进日志。
 
 ## 和……有什么区别
@@ -187,7 +194,7 @@ WantedBy=default.target
 ```console
 $ git clone https://github.com/Yuh302331-ctrl/redhand && cd redhand
 $ pip install -e ".[dev]"
-$ pytest tests/ --cov=redhand          # 119 项测试，90% 覆盖
+$ pytest tests/ --cov=redhand          # 全量测试，约 90% 覆盖
 ```
 
 模块结构：`src/redhand/` —— `scanner.py`（目录扫描 + 影子比对） · `actors.py`（进程归属） · `journal.py`（SQLite：影子、事件、blob） · `watch.py`（引擎） · `restore.py` · `digest.py` · `cli.py` · `config.py` · `util.py`。
@@ -197,7 +204,7 @@ $ pytest tests/ --cov=redhand          # 119 项测试，90% 覆盖
 - fsevents/inotify 后端，实现亚秒级检测（轮询引擎保留为后备）
 - 归属显示名规则（如在 git 仓库里按提交作者归属）
 - HTML 摘要 + diff 视图
-- Windows 支持（无 ps/lsof 时如何归属是关键问题）
+- ~~Windows 支持~~——0.2.0 已发布（归属封顶 `medium`，见「归属是怎么做的」）
 
 ## 许可
 

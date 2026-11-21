@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import os
 
 import pytest
@@ -242,6 +241,7 @@ def test_protect_enforce_recreates_deleted(jroot, monkeypatch):
 
 
 def test_watch_lock_single_instance(jroot):
+    fcntl = pytest.importorskip("fcntl")  # POSIX-only locking
     from redhand.config import load_config
 
     cfg = load_config(jroot)
@@ -295,39 +295,4 @@ def test_summary_counts(jroot, monkeypatch):
         jj.close()
 
 
-def test_concurrent_restore_not_double_recorded(jroot, monkeypatch):
-    """A restore from another process lands between our scan and our write:
-    the fresh-shadow guard must skip the duplicate."""
-    from redhand.config import load_config
-    from redhand.journal import Journal
-
-    cfg = load_config(jroot)
-    fake_agents(monkeypatch, [])
-    write(os.path.join(jroot, "f.txt"), "one")
-    jj = Journal(jroot)
-    try:
-        make_watcher(jroot, jj, cfg, once=True, interval=0.01).run()  # seed
-    finally:
-        jj.close()
-
-    # the change happens; a concurrent restore process records it AND updates the shadow
-    write(os.path.join(jroot, "f.txt"), "two")
-    jj = Journal(jroot)
-    try:
-        row = jj.shadow_row("f.txt")
-        import time as _t
-
-        jj.record_change(
-            ts=_t.time(), run_id=None, path="f.txt", event_type="modified",
-            actor="redhand", confidence="high", old_size=3, new_size=3,
-            old_hash=None, new_hash=None, mtime_ns=1,
-            pre_blob_id=row["blob_id"], new_content=b"two",
-            blob_cap_total=1024 * 1024,
-        )
-        # now the watcher scans with its stale shadow snapshot
-        w = make_watcher(jroot, jj, cfg, once=True, interval=0.01)
-        summary = w.run()
-        assert summary.events == 0  # no duplicate
-        assert len([e for e in jj.events() if e["path"] == "f.txt"]) == 1
-    finally:
-        jj.close()
+# the mid-scan dedup race now lives in tests/test_race_dedup.py

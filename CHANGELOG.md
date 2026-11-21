@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-11-21
+
+### Added
+- **Windows support**: journal, restore, digest and protect run unchanged.
+  Process snapshots use `Get-CimInstance Win32_Process` (name + full command
+  line; the 20 agent signatures work as-is). Windows exposes no public API for
+  another process's working directory, so attribution caps at `medium`
+  (unverified-agent) there — `high` requires cwd verification and stays
+  macOS/Linux-only. No agent running -> `low`/manual, same as before.
+- Windows one-watcher lock via `msvcrt.locking` (POSIX keeps `flock`).
+- ANSI colors enabled for classic Windows consoles (VT sequence enable);
+  Windows Terminal unaffected.
+- CI matrix extended to windows-latest (Python 3.9 and 3.13 boundary
+  versions); README documents a schtasks background setup for Windows.
+
 ## [0.1.0] - 2026-11-21
 
 First release.

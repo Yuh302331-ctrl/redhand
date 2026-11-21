@@ -378,6 +378,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if sys.platform == "win32":
+        os.system("")  # enable ANSI VT processing in classic consoles
     if not getattr(args, "func", None):
         parser.print_help()
         return 0

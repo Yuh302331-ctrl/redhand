@@ -428,6 +428,10 @@ class Journal:
             where.append("e.actor = ?")
             args.append(actor)
         if path:
+            # stored paths always use '/'; normalize shell tab-completion
+            # backslashes (Windows) before matching
+            if os.sep != "/":
+                path = path.replace(os.sep, "/")
             escaped = path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             where.append("(e.path = ? OR e.path LIKE ? ESCAPE '\\')")
             args.extend([path, escaped + "/%"])

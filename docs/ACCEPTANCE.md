@@ -26,8 +26,15 @@ authoring machine (macOS, Python 3.9.6).
 2. **Verification review #2** (same agent class, probe-driven): verified all
    15 fix sites, found 3 residuals — symlink→FIFO/device hang (both hash
    paths), uncaught JournalError in `--enforce`, digest restore examples
-   ignoring the actor filter — plus one vacuous test. **All fixed**, with the
-   vacuous test rewritten to be load-bearing (guard-disabled variant asserted).
+   ignoring the actor filter — plus one vacuous test. All fixed; the vacuous
+   dedup-guard test was initially rewritten into the wrong file (a silent
+   no-op that was reported as done — caught and corrected by review #3).
+3. **Review #3** (third round, post-hardening): verified the earlier fixes,
+   found one real P1 regression (files growing beyond `hash_limit` were
+   silently never journaled after the safe_hash swap), FIFO/hang and Windows
+   gaps (junction descent, write-through, backslash path queries), and the
+   still-vacuous dedup test — all fixed; the dedup race now has a
+   deterministic, self-verifying test (guard-disabled variant asserted).
 
 ## Real-scenario verification (all live runs)
 

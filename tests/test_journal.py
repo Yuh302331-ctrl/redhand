@@ -85,10 +85,14 @@ def test_created_modified_deleted_chain(jj):
 def test_events_filters(jj):
     base = dict(run_id=None, actor="claude", confidence="high", mtime_ns=1,
                 pre_blob_id=None, new_content=b"x", blob_cap_total=0)
-    jj.record_change(ts=10, path="a/f1.txt", event_type="created", new_size=1, old_size=None, old_hash=None, new_hash="a", **base)
-    jj.record_change(ts=20, path="a/f2.txt", event_type="created", new_size=1, old_size=None, old_hash=None, new_hash="b", **base)
-    jj.record_change(ts=30, path="b/f3.txt", event_type="created", new_size=1, old_size=None, old_hash=None, new_hash="c", **base)
-    jj.record_change(ts=40, path="a/deep/f4.txt", event_type="created", new_size=1, old_size=None, old_hash=None, new_hash="d", **base)
+    jj.record_change(ts=10, path="a/f1.txt", event_type="created",
+                     new_size=1, old_size=None, old_hash=None, new_hash="a", **base)
+    jj.record_change(ts=20, path="a/f2.txt", event_type="created",
+                     new_size=1, old_size=None, old_hash=None, new_hash="b", **base)
+    jj.record_change(ts=30, path="b/f3.txt", event_type="created",
+                     new_size=1, old_size=None, old_hash=None, new_hash="c", **base)
+    jj.record_change(ts=40, path="a/deep/f4.txt", event_type="created",
+                     new_size=1, old_size=None, old_hash=None, new_hash="d", **base)
 
     assert len(jj.events()) == 4
     assert len(jj.events(since=25)) == 2
@@ -96,7 +100,8 @@ def test_events_filters(jj):
     assert len(jj.events(path="a")) == 3  # prefix match
     assert len(jj.events(path="a/f1.txt")) == 1
     # LIKE special chars in path are safe
-    jj.record_change(ts=50, path="w/100%.txt", event_type="created", new_size=1, old_size=None, old_hash=None, new_hash="e", **base)
+    jj.record_change(ts=50, path="w/100%.txt", event_type="created",
+                     new_size=1, old_size=None, old_hash=None, new_hash="e", **base)
     assert len(jj.events(path="w/100%.txt")) == 1
     assert len(jj.events(path="w")) == 1
     # actor/type filters
@@ -150,7 +155,8 @@ def test_restore_flag_and_prev_event(jj):
                 new_size=3, old_hash=None, new_hash="h", mtime_ns=1,
                 blob_cap_total=0)
     e1 = jj.record_change(ts=1, path="f.txt", event_type="created", pre_blob_id=None, new_content=b"abc", **base)
-    e2 = jj.record_change(ts=2, path="f.txt", event_type="modified", pre_blob_id=jj.shadow_row("f.txt")["blob_id"], new_content=b"abcd", **base)
+    e2 = jj.record_change(ts=2, path="f.txt", event_type="modified",
+                          pre_blob_id=jj.shadow_row("f.txt")["blob_id"], new_content=b"abcd", **base)
     ev = jj.event_by_id(e2)
     assert ev["prev_event"] is None and ev["restored"] == 0
     jj.mark_restored(e1)

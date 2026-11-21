@@ -58,7 +58,7 @@ session: 5s · 12 events · 1 touches · 1 protected · 1 reverted
   bytes stored once), per-file and global caps with FIFO eviction, `forget` to
   prune. A typical project journal is tens of KB.
 
-Zero runtime dependencies. Python 3.9+. macOS and Linux.
+Zero runtime dependencies. Python 3.9+. macOS, Linux and Windows.
 
 ## Install
 
@@ -93,8 +93,12 @@ $ redhand forget --before 30d # prune the journal
 On every tick that has changes, redhand snapshots the process table and matches
 your configured agent signatures (20 built in, configurable in `config.json`)
 against process names and command lines. It then resolves each matching
-process's working directory (`lsof` on macOS/Linux, `/proc/<pid>/cwd` on Linux)
-and checks whether that directory covers the changed file:
+process's working directory (`lsof` everywhere on POSIX, with a
+`/proc/<pid>/cwd` fallback on Linux when lsof is unavailable)
+and checks whether that directory covers the changed file. On Windows,
+working directories of other processes are not readable through any public
+API, so every agent match caps at `medium` — attribution is a live
+"who is running" signal, never a guess at which one wrote the file:
 
 | confidence | meaning |
 |---|---|
@@ -205,6 +209,13 @@ Restart=on-failure
 WantedBy=default.target
 ```
 
+Windows (schtasks) — run once in an admin prompt:
+
+```console
+$ schtasks /create /tn "redhand watch" /sc onlogon /rl limited ^
+  /tr \"%LOCALAPPDATA%\Programs\Python\Python313\Scripts\redhand.exe\" watch --root C:\Users\you\projects"
+```
+
 Gotcha: keep the log file **outside** the watched root, or redhand will happily
 journal its own output.
 
@@ -223,7 +234,7 @@ journal its own output.
 ```console
 $ git clone https://github.com/Yuh302331-ctrl/redhand && cd redhand
 $ pip install -e ".[dev]"
-$ pytest tests/ --cov=redhand          # 119 tests, 90% coverage
+$ pytest tests/ --cov=redhand          # full suite, ~90% coverage
 ```
 
 Layout: `src/redhand/` — `scanner.py` (walk + shadow diff) · `actors.py`
@@ -237,7 +248,7 @@ Layout: `src/redhand/` — `scanner.py` (walk + shadow diff) · `actors.py`
 - fsevents/inotify backend for sub-second detection (poll engine stays as fallback)
 - per-actor display-name rules (e.g. attribute by git author when in a repo)
 - HTML digest with diffs
-- Windows support (attribution without ps/lsof is the open question)
+- ~~Windows support~~ — shipped in 0.2.0 (attribution caps at `medium`; see How attribution works)
 
 ## License
 

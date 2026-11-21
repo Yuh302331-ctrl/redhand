@@ -31,6 +31,7 @@ def make_watcher(jroot, journal, cfg, **kw):
 # ---------------------------------------------------------------- specials
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX-only (mkfifo/symlink)')
 def test_fifo_recorded_but_never_opened(tmp_path):
     root = str(tmp_path / "r")
     os.makedirs(root)
@@ -39,6 +40,7 @@ def test_fifo_recorded_but_never_opened(tmp_path):
     assert "pipe" in entries and entries["pipe"].special
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX-only (mkfifo/symlink)')
 def test_watch_once_survives_fifo(tmp_path):
     """A FIFO in the tree must not hang the watcher (open() would block forever)."""
     root = str(tmp_path / "r")
@@ -48,6 +50,7 @@ def test_watch_once_survives_fifo(tmp_path):
     assert main(["--root", root, "watch", "--once", "--interval", "0.05"]) == 0
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX-only (mkfifo/symlink)')
 def test_symlink_to_huge_target_never_read(tmp_path):
     root = str(tmp_path / "r")
     os.makedirs(root)
@@ -165,6 +168,7 @@ def test_protect_never_clobbers_broken_config(tmp_path, capsys):
 # ---------------------------------------------------------------- restore hardening
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX-only (mkfifo/symlink)')
 def test_restore_replaces_planted_symlink(tmp_path):
     """A symlink planted over the path must not redirect restore content."""
     root = str(tmp_path / "r")
@@ -279,6 +283,7 @@ def test_restore_while_watch_running(tmp_path):
 # ---------------------------------------------------------------- round-2 fixes
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX-only (mkfifo/symlink)')
 def test_symlink_to_fifo_never_blocks(tmp_path):
     """symlink -> FIFO: hashing must refuse to open the target (would block)."""
     root = str(tmp_path / "r")
@@ -420,3 +425,52 @@ def test_restore_creates_run_row(tmp_path, capsys):
         assert run["note"] == "restore" and run["ended_at"] is not None
     finally:
         jj.close()
+
+
+def test_file_growing_beyond_hash_limit_is_journaled(tmp_path):
+    """A file that grows beyond hash_limit after seeding must produce an
+    event (size-only from then on) — never a silent skip (P1 regression)."""
+    from redhand.config import load_config
+    from redhand.journal import Journal
+
+    root = str(tmp_path / "r")
+    os.makedirs(root)
+    write(os.path.join(root, "grow.bin"), "tiny")
+    cfg = load_config(root)
+    cfg.hash_limit = 1024  # tiny limit for the test
+    jj = Journal(root)
+    try:
+        make_watcher(jroot=root, journal=jj, cfg=cfg, once=True, interval=0.01).run()
+        assert jj.shadow_row("grow.bin")["sha256"] is not None  # seeded small
+        # grow far beyond the limit
+        write(os.path.join(root, "grow.bin"), "X" * 4096)
+        w = make_watcher(jroot=root, journal=jj, cfg=cfg, once=True, interval=0.01)
+        summary = w.run()
+        assert summary.events == 1  # NOT silently skipped
+        rows = [e for e in jj.events() if e["path"] == "grow.bin"]
+        assert rows[0]["event"] == "modified"
+        assert rows[0]["new_size"] == 4096 and rows[0]["new_hash"] is None
+        # shadow switched to size-only tracking (sha NULL) — and the next
+        # cycle stays quiet instead of re-detecting forever
+        row = jj.shadow_row("grow.bin")
+        assert row["sha256"] is None and row["size"] == 4096
+        w2 = make_watcher(jroot=root, journal=jj, cfg=cfg, once=True, interval=0.01)
+        summary2 = w2.run()
+        assert summary2.events == 0
+    finally:
+        jj.close()
+
+
+def test_write_file_nofollow_refuses_fifo(tmp_path):
+    """Restore/enforce writes must fail cleanly on a planted FIFO, not hang."""
+    import errno as _errno
+
+    from redhand.util import write_file_nofollow
+
+    root = str(tmp_path / "r")
+    os.makedirs(root)
+    pipe = os.path.join(root, "p")
+    os.mkfifo(pipe)
+    with pytest.raises(OSError) as e:
+        write_file_nofollow(pipe, b"data")
+    assert e.value.errno == _errno.EINVAL

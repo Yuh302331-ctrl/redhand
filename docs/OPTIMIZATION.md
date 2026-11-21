@@ -70,11 +70,12 @@ framework / eBPF), which is out of scope for a zero-dependency tool.
 - **Python**: 3.9–3.13 (CI matrix). No stdlib APIs newer than 3.9; `Z`-suffix
   ISO timestamps translated manually because `fromisoformat` gained `Z`
   support only in 3.11.
-- **OS**: macOS first (author's platform), Linux CI-equivalent. `lsof` for cwd
-  with `/proc/<pid>/cwd` fallback; `O_NOFOLLOW` guarded with `getattr(os, ...)`
-  since it is POSIX-only. Windows would need: a watcher without fcntl
-  (msvcrt.locking), attribution without ps/lsof (WMI/psutil — a dependency, so
-  a separate optional extra), and path-separator audits. Not planned for 0.x.
+- **OS**: macOS first, Linux CI-equivalent. Windows support shipped in 0.2.0
+  (msvcrt.locking watcher, PowerShell process snapshot, junction-aware walk,
+  backslash-normalized path queries) with known gaps: attribution on Windows
+  cannot verify agent working directories the way lsof does, and
+  `write_file_nofollow` cannot rely on `O_NOFOLLOW` (absent on Windows), so
+  planted links/junctions are pre-removed best-effort instead.
 - **Editors/agents**: signatures are data, not code — new agents are a
   `config.json` edit, no release needed.
 

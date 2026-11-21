@@ -1,11 +1,14 @@
 """Attribution: which AI agent (or human) likely made a set of file changes.
 
 Strategy, per change batch:
- 1. Snapshot the process table (ps).
+ 1. Snapshot the process table (ps on macOS/Linux, Get-CimInstance on Windows).
  2. Classify agent-like processes using configurable name signatures
     (word-boundary match on the process name and full command line).
- 3. Resolve each agent's current working directory (lsof on macOS/Linux,
-    /proc/<pid>/cwd on Linux as fallback).
+ 3. Resolve each agent's current working directory (lsof on macOS,
+    /proc/<pid>/cwd on Linux).  On Windows this deliberately yields None for
+    every pid: Win32_Process exposes CommandLine but not the working
+    directory (it lives in the target's PEB, reachable only via undocumented
+    APIs), so HIGH confidence is unreachable there by design.
  4. For each changed file: if an agent's cwd is the watched root or an
     ancestor of the file, attribute with HIGH confidence to that agent
     (most specific cwd wins). Otherwise, if any agent is running at all,
@@ -21,6 +24,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -32,7 +36,10 @@ CONF_HIGH = "high"
 CONF_MEDIUM = "medium"
 CONF_LOW = "low"
 
+_IS_WINDOWS = sys.platform == "win32"
+
 _PS_TIMEOUT = 8
+_PS_TIMEOUT_WIN = 20      # powershell cold start is slow; queried per batch
 _LSOF_TIMEOUT = 8
 _LSOF_CHUNK = 100
 
@@ -78,7 +85,9 @@ def _run(cmd: Sequence[str], timeout: float = _PS_TIMEOUT) -> Optional[str]:
 
 def snapshot_processes() -> List[Proc]:
     """pid/comm/args for all processes; comm and args fetched separately to
-    survive spaces in executable paths. Returns [] if ps is unusable."""
+    survive spaces in executable paths. Returns [] if the probe is unusable."""
+    if _IS_WINDOWS:
+        return _snapshot_processes_windows()
     comm_out = _run(["ps", "-axo", "pid=,comm="])
     args_out = _run(["ps", "-axo", "pid=,args="])
     if comm_out is None or args_out is None:
@@ -99,6 +108,39 @@ def snapshot_processes() -> List[Proc]:
                 procs[pid].args = m.group(2).strip()
             else:
                 procs[pid] = Proc(pid=pid, args=m.group(2).strip())
+    return list(procs.values())
+
+
+# one powershell invocation returns "pid\tname\tcommandline" per process;
+# Get-CimInstance over wmic (wmic is removed in recent Windows 11 images)
+_PWSH_SNAPSHOT = (
+    "$ErrorActionPreference = 'SilentlyContinue';"
+    "Get-CimInstance Win32_Process -Property ProcessId,Name,CommandLine | "
+    "ForEach-Object { \"{0}`t{1}`t{2}\" -f $_.ProcessId, $_.Name, $_.CommandLine }"
+)
+
+
+def _snapshot_processes_windows() -> List[Proc]:
+    out = _run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", _PWSH_SNAPSHOT],
+        _PS_TIMEOUT_WIN,
+    )
+    if not out:
+        return []
+    procs: Dict[int, Proc] = {}
+    for line in out.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        pid_s, name, cmdline = (p.strip() for p in parts)
+        try:
+            pid = int(pid_s)
+        except ValueError:
+            continue
+        # signatures match the full command line; mirror ps 'args' semantics by
+        # prefixing the executable name (cmdline may be empty for protected
+        # system processes — those still match on comm/Name)
+        procs[pid] = Proc(pid=pid, comm=name, args=f"{name} {cmdline}".strip())
     return list(procs.values())
 
 
@@ -139,10 +181,14 @@ def classify_agents(
 
 
 def resolve_cwds(pids: Sequence[int]) -> Dict[int, Optional[str]]:
-    """cwd per pid via lsof -F0pcn; /proc fallback on Linux; None when unknown."""
+    """cwd per pid via lsof -F0pcn (macOS); /proc/<pid>/cwd fallback (Linux);
+    all-None on Windows — there is no supported API for another process's
+    working directory, so attribution caps at MEDIUM there (by design)."""
     result: Dict[int, Optional[str]] = {pid: None for pid in pids}
     pids = [p for p in pids if p > 0]
     if not pids:
+        return result
+    if _IS_WINDOWS:
         return result
 
     for i in range(0, len(pids), _LSOF_CHUNK):

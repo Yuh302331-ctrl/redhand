@@ -145,3 +145,63 @@ def test_snapshot_processes_runs():
     # every line's pid present exactly once
     pids = [p.pid for p in procs]
     assert len(pids) == len(set(pids))
+
+
+# ---------------------------------------------------------------- windows support
+
+# lines as powershell Get-CimInstance emits them: pid\tname\tcommandline
+_WIN_SAMPLE = (
+    "500\tclaude.exe\tclaude --resume abc\r\n"
+    "504\tCode.exe\t\"C:\\app\\Code.exe\" --open D:\\proj\r\n"
+    "808\tsvchost.exe\t\r\n"
+    "not-a-pid\tbroken.exe\t\r\n"
+)
+
+
+def _force_windows(monkeypatch):
+    if not A._IS_WINDOWS:
+        monkeypatch.setattr(A, "_IS_WINDOWS", True)
+
+
+def test_windows_snapshot_parsing(monkeypatch):
+    _force_windows(monkeypatch)
+    monkeypatch.setattr(A, "_run", lambda cmd, timeout=None: _WIN_SAMPLE)
+    procs = A.snapshot_processes()
+    by_pid = {p.pid: p for p in procs}
+    assert 500 in by_pid and by_pid[500].comm == "claude.exe"
+    assert by_pid[500].args.endswith("claude --resume abc")
+    # cmdline may be empty (protected system processes) — still snapshotted
+    assert 808 in by_pid and by_pid[808].args == "svchost.exe"
+    # malformed lines are skipped
+    assert all(isinstance(p.pid, int) for p in procs)
+    assert len({p.pid for p in procs}) == len(procs)
+
+
+def test_windows_signature_match_from_args(monkeypatch):
+    _force_windows(monkeypatch)
+    monkeypatch.setattr(A, "_run", lambda cmd, timeout=None: _WIN_SAMPLE)
+    procs = A.snapshot_processes()
+    agents = classify_agents(procs, ["claude", "codex"])
+    names = {a.name for a in agents}
+    assert names == {"claude"}  # Code.exe hosts codex-ish args must NOT match codex
+
+
+def test_windows_cwds_all_none(monkeypatch):
+    _force_windows(monkeypatch)
+    assert A.resolve_cwds([500, 504]) == {500: None, 504: None}
+
+
+def test_attribute_agent_without_cwd_is_medium():
+    """The Windows ceiling: agent seen, cwd unknowable -> unverified-agent/medium.
+    No agents at all -> manual/low."""
+    agent_no_cwd = AgentProc(pid=5, name="claude", comm="claude", args="claude", cwd=None)
+    got = attribute(os.path.sep + "root", ["a.txt"], [agent_no_cwd])
+    assert got["a.txt"] == (A.ACTOR_UNVERIFIED, A.CONF_MEDIUM)
+    got2 = attribute(os.path.sep + "root", ["a.txt"], [])
+    assert got2["a.txt"] == (A.ACTOR_MANUAL, A.CONF_LOW)
+
+
+def test_lock_backend_available():
+    """At least one locking backend must exist on any supported platform."""
+    from redhand import watch
+    assert watch._HAVE_FCNTL or watch._HAVE_MSVCRT

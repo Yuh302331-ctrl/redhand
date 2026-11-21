@@ -10,7 +10,8 @@ Design notes
   snapshot per tick, not per file).
 * Protected paths are recorded first (audit trail), then optionally reverted
   ('--enforce'); each revert is recorded as its own event by actor 'redhand'.
-* One watcher per watched root, enforced by an flock on .whodunit/watch.lock.
+* One watcher per watched root, enforced by an exclusive lock on
+  .whodunit/watch.lock (flock on POSIX, msvcrt.locking on Windows).
 """
 
 from __future__ import annotations
@@ -23,12 +24,6 @@ import sys
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-
-try:
-    import fcntl  # POSIX only; redhand targets macOS/Linux
-    _HAVE_FCNTL = True
-except ImportError:  # pragma: no cover
-    _HAVE_FCNTL = False
 
 from . import actors as _actors
 from . import scanner as _scanner
@@ -45,6 +40,43 @@ from .util import (
     safe_hash,
     write_file_nofollow,
 )
+
+try:
+    import fcntl  # POSIX advisory locking (macOS/Linux)
+    _HAVE_FCNTL = True
+except ImportError:  # pragma: no cover
+    _HAVE_FCNTL = False
+
+try:
+    import msvcrt  # Windows locking backend
+    _HAVE_MSVCRT = True
+except ImportError:  # pragma: no cover
+    _HAVE_MSVCRT = False
+
+
+def _lock_file_exclusive(fh) -> None:
+    """Non-blocking exclusive lock on the whole file; raises OSError if held."""
+    if _HAVE_FCNTL:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    elif _HAVE_MSVCRT:
+        # locking one byte past EOF is legal and is the canonical pattern
+        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+    else:  # pragma: no cover
+        raise OSError("no locking backend available")
+
+
+def _unlock_file(fh) -> None:
+    if _HAVE_FCNTL:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    elif _HAVE_MSVCRT:
+        # locking() operates at the current file position: rewind to byte 0
+        # (the byte we locked) before unlocking; closing releases anyway
+        try:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+
 
 LOCK_NAME = "watch.lock"
 
@@ -153,20 +185,20 @@ class Watcher:
         return read_file_bytes(abs_path)
 
     def _acquire_lock(self):
-        if not _HAVE_FCNTL:  # pragma: no cover
-            raise WatchError("watch mode requires POSIX file locking (macOS/Linux)")
+        if not (_HAVE_FCNTL or _HAVE_MSVCRT):  # pragma: no cover
+            raise WatchError("watch mode requires file locking (macOS/Linux/Windows)")
         lock_path = os.path.join(self.root, ".whodunit", LOCK_NAME)
+        holder = "?"
+        try:
+            with open(lock_path, "r", encoding="utf-8") as rf:
+                holder = rf.read().strip() or "?"
+        except OSError:
+            pass
         fh = open(lock_path, "w")
         try:
-            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_file_exclusive(fh)
         except OSError:
             fh.close()
-            holder = "?"
-            try:
-                with open(lock_path, "r", encoding="utf-8") as rf:
-                    holder = rf.read().strip() or "?"
-            except OSError:
-                pass
             raise WatchError(
                 f"another redhand watch appears active on this root (lock held by pid {holder}); "
                 "only one watcher per root is supported"
@@ -456,7 +488,7 @@ class Watcher:
                     pass
             self.jj.end_run(run_id)
             try:
-                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+                _unlock_file(lock_fh)
                 lock_fh.close()
             except (OSError, NameError, UnboundLocalError):
                 pass
