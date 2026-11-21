@@ -80,7 +80,7 @@ def test_sha256_file_and_bytes(tmp_path):
 
 def test_is_probably_text(tmp_path):
     t = tmp_path / "t.txt"
-    t.write_text("ok 中文 text")
+    t.write_text("ok 中文 text", encoding="utf-8")
     assert is_probably_text(str(t))
     b = tmp_path / "b.bin"
     b.write_bytes(b"\x00\x01\x02binary")
