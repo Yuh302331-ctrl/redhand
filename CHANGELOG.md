@@ -33,4 +33,4 @@ First release.
   replaced, not written through); zero-length files participate in undo
   chains; refused stores never evict history (no evict-then-bail); blob
   dedup by SHA-256; SIGTERM/SIGHUP graceful shutdown; sqlite busy-timeout.
-- Test suite (114 tests, 90% coverage) and CI across the full matrix.
+- Test suite (119 tests, 90% coverage) and CI across the full matrix.

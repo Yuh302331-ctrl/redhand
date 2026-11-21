@@ -187,7 +187,7 @@ WantedBy=default.target
 ```console
 $ git clone https://github.com/Yuh302331-ctrl/redhand && cd redhand
 $ pip install -e ".[dev]"
-$ pytest tests/ --cov=redhand          # 114 项测试，90% 覆盖
+$ pytest tests/ --cov=redhand          # 119 项测试，90% 覆盖
 ```
 
 模块结构：`src/redhand/` —— `scanner.py`（目录扫描 + 影子比对） · `actors.py`（进程归属） · `journal.py`（SQLite：影子、事件、blob） · `watch.py`（引擎） · `restore.py` · `digest.py` · `cli.py` · `config.py` · `util.py`。

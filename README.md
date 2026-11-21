@@ -223,7 +223,7 @@ journal its own output.
 ```console
 $ git clone https://github.com/Yuh302331-ctrl/redhand && cd redhand
 $ pip install -e ".[dev]"
-$ pytest tests/ --cov=redhand          # 114 tests, 90% coverage
+$ pytest tests/ --cov=redhand          # 119 tests, 90% coverage
 ```
 
 Layout: `src/redhand/` — `scanner.py` (walk + shadow diff) · `actors.py`
