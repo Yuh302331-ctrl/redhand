@@ -1,0 +1,55 @@
+# Acceptance report — redhand 0.1.0
+
+2026-11-21. This file summarizes the quality gates the project passed before
+being handed over. Every claim below was produced by an actual run on the
+authoring machine (macOS, Python 3.9.6).
+
+## Automated gates
+
+| gate | result |
+|---|---|
+| Test suite | **119 tests, all passing** (`pytest tests/`) |
+| Coverage | 90% total; lowest modules are error-path-heavy (watch 86%, util 88%) |
+| Static lint | `flake8 src/ tests/` — 0 findings (E501 in test data lines excluded) |
+| CI matrix | GitHub Actions: 3.9–3.13 × ubuntu/macos (runs on push) |
+| Packaging | `pip install .` verified in a clean venv; console script `redhand` works |
+| Dependencies | **zero runtime dependencies** (stdlib only) |
+
+## Independent review rounds
+
+1. **Adversarial review #1** (fresh-eyes agent, empirical reproduction): 15
+   findings — FIFO hang (P1), symlink→large-file OOM (P1), digest actor filter
+   (P1), evict-then-bail, transient-read downgrade, empty-file undo chain,
+   restore write-through-symlink, config clobbering, sqlite robustness, blob
+   dedup, restore metadata, interval clamp, corrupt blob crash, docstring
+   overclaim, actor kinds. **All 15 fixed.**
+2. **Verification review #2** (same agent class, probe-driven): verified all
+   15 fix sites, found 3 residuals — symlink→FIFO/device hang (both hash
+   paths), uncaught JournalError in `--enforce`, digest restore examples
+   ignoring the actor filter — plus one vacuous test. **All fixed**, with the
+   vacuous test rewritten to be load-bearing (guard-disabled variant asserted).
+
+## Real-scenario verification (all live runs)
+
+- watch → modify/create/delete → attribution to a *real* running agent
+  process (codex, cwd-verified) → digest correct
+- protected-path tamper with `--enforce`: auto-reverted, byte-identical content
+- CLI restore (`--path`): exact pre-change content back; undo chain round-trips
+- FIFO and symlinks in the watched tree: no hang, never opened (the exact
+  scenario review #2 reproduced as blocking now passes)
+- cross-process restore while a watcher runs: no double-record, no crash
+- SIGINT/SIGTERM/SIGHUP: graceful shutdown with session summary
+- **60 s soak**: 162 events captured, RSS growth 240 KB total, 196 KB db
+
+## Known limitations (documented, by design)
+
+See README "Known limitations": poll-window collapse, hash-only tracking for
+large/binary files, mtime-only undetectability for large files, one watcher
+per root, correlation-not-forensics attribution.
+
+## Repo state at handover
+
+- 3 commits on `main` (0.1.0 + hardening + docs), clean tree
+- ~740 KB total, text only; `.whodunit/` journals never committed
+- bilingual docs (README.md / README.zh-CN.md), CHANGELOG, MIT LICENSE,
+  docs/OPTIMIZATION.md (design rationale + optimization backlog)
