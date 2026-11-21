@@ -122,7 +122,7 @@ def test_restore_via_cli(tmp_path, capsys):
     assert run("restore", "--dry-run", str(ev + 1), root=root) == 0
     assert open(p).read() == "modified"
 
-    assert run("restore", str(ev + 1), root=root) == 0
+    assert run("restore", "--yes", str(ev + 1), root=root) == 0
     assert open(p).read() == "before"
 
     # list shows restorable events

@@ -38,7 +38,7 @@ session: 5s · 12 events · 1 touches · 1 protected · 1 reverted
 
 - **改动日志**——以 *shadow*（影子：每个文件的最后已知状态）为基线记录每一次创建/修改/删除，跨重启也能接上，会话之间不会有遗漏。
 - **归属判定**——监控进程表并核实工作目录，把改动归到具体 AI 代理（或人工）。三级诚实的置信度（见下文）。
-- **还原**——限额内的文本文件都有内容快照。统一的语义：`restore <event>` 把文件放回**该事件发生前一刻**的状态。撤销链完整——撤销"还原事件"等于重做改动。
+- **还原**——限额内的文本文件都有内容快照。统一的语义：`restore <event>` 把文件放回**该事件发生前一刻**的状态。撤销链完整——撤销"还原事件"等于重做改动。restore 默认只预演（`--yes` 才真正写盘）；恢复前会做新鲜度校验——磁盘上有 journal 尚未记录的变更时拒绝执行（`--force` 可跳过校验）。
 - **保护模式**——配置 `secrets/`、`*.key` 这类模式；受保护路径一旦被改立即告警，`watch --enforce` 还会自动回滚。
 - **摘要**——`redhand digest` 产出 Markdown 报告：谁在什么时候改了什么。
 - **存储克制**——快照 zlib 压缩、按内容寻址（相同字节只存一份），单文件与全局双上限 + FIFO 逐出，`forget` 可修剪。典型项目日志只有几十 KB。
@@ -65,7 +65,7 @@ $ redhand log --limit 20      # 最近发生了什么
 $ redhand digest --since 2h   # Markdown 摘要：谁改了什么
 $ redhand restore --list      # 哪些可以还原
 $ redhand restore 42          # 还原到 42 号事件之前的状态
-$ redhand restore --path src/app.py    # 撤销某文件的最近一次改动
+$ redhand restore --yes --path src/app.py    # 撤销某文件的最近一次改动（--yes 才写盘）
 
 $ redhand protect add secrets/ *.key .env
 $ redhand watch --enforce     # 受保护路径被改时自动回滚
@@ -113,7 +113,7 @@ $ redhand forget --before 30d # 修剪日志
 | `watch` | 实时记录改动（`--once`、`--interval 秒`、`--enforce`） |
 | `digest` | Markdown 报告（`--since 2h`、`--actor claude`、`--out file.md`） |
 | `log` | 最近事件，新的在前（`--since`、`--actor`、`--path`、`--event`） |
-| `restore` | `--list` / `<事件号>` / `--path 路径` / `--dry-run` |
+| `restore` | `--list` / `<事件号>` / `--path 路径` · 默认只预演，`--yes` 写盘，`--force` 跳过新鲜度校验 |
 | `protect` | 查看 / 添加 / 移除受保护模式 |
 | `status` | 根目录、跟踪与存储概览 |
 | `actors` | 探测正在运行的代理进程 |

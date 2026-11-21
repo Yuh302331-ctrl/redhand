@@ -186,12 +186,16 @@ def cmd_restore(args, cfg) -> int:
                 print(f"#{e['id']:<7} {fmt_ts(e['ts'])}  {e['event']:>8}  {e['path']}  ({e['actor']})")
             print("\nrestore with: redhand restore <id>")
             return 0
+        # safe default: preview unless --yes is given explicitly
+        dry_run = args.dry_run or not args.yes
         if args.path:
-            out = undo_latest(jj, args.root, args.path, dry_run=args.dry_run,
-                              run_id=run_id, blob_cap_total=cfg.blob_total)
+            out = undo_latest(jj, args.root, args.path, dry_run=dry_run,
+                              run_id=run_id, blob_cap_total=cfg.blob_total,
+                              force=args.force, hash_limit=cfg.hash_limit)
         elif args.event_id is not None:
-            out = restore_event(jj, args.root, args.event_id, dry_run=args.dry_run,
-                                run_id=run_id, blob_cap_total=cfg.blob_total)
+            out = restore_event(jj, args.root, args.event_id, dry_run=dry_run,
+                                run_id=run_id, blob_cap_total=cfg.blob_total,
+                                force=args.force, hash_limit=cfg.hash_limit)
         else:
             print("nothing to do: pass an event id, --path, or --list (see --help)", file=sys.stderr)
             return 1
@@ -374,7 +378,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--path", default=None, help="undo the latest recorded change of this path")
     sp.add_argument("--list", action="store_true", help="list restorable events")
     sp.add_argument("--limit", type=int, default=20)
-    sp.add_argument("--dry-run", action="store_true")
+    sp.add_argument("--dry-run", action="store_true", help="preview only (this is the default; kept for scripts)")
+    sp.add_argument("--yes", action="store_true",
+                    help="really write to disk — without it restore is a dry-run preview")
+    sp.add_argument("--force", action="store_true",
+                    help="skip the freshness check (dangerous: may destroy unrecorded changes)")
     sp.set_defaults(func=cmd_restore)
 
     sp = sub.add_parser("protect", parents=[common], help="list/add/remove protected path patterns")

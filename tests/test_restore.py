@@ -62,6 +62,8 @@ def test_restore_deleted_recreates_file(root):
     try:
         seed_file(jj, root, "g.txt", "precious")
         row = jj.shadow_row("g.txt")
+        # like the watcher would: the file is really gone before 'deleted' is recorded
+        os.remove(os.path.join(root, "g.txt"))
         ev2 = jj.record_change(
             ts=time.time(), run_id=None, path="g.txt", event_type="deleted",
             actor="codex", confidence="medium",

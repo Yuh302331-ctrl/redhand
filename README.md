@@ -50,7 +50,9 @@ session: 5s · 12 events · 1 touches · 1 protected · 1 reverted
   honest confidence levels (see [How attribution works](#how-attribution-works)).
 - **Restore** — text files up to the size cap are snapshotted. One semantic:
   `restore <event>` puts the file back to *just before* that event happened.
-  Undo chains work — undoing a restore-event redoes the change.
+  Undo chains work — undoing a restore-event redoes the change. Restore is a
+  dry-run by default (`--yes` writes); a freshness check refuses to touch a
+  file whose current state the journal hasn't recorded yet (`--force` overrides).
 - **Protect** — patterns like `secrets/` or `*.key`; every change there is
   flagged, and `watch --enforce` reverts it automatically.
 - **Digest** — `redhand digest` renders a markdown report of who did what.
@@ -80,7 +82,7 @@ $ redhand log --limit 20      # what happened recently
 $ redhand digest --since 2h   # markdown report, who changed what
 $ redhand restore --list      # what can be put back
 $ redhand restore 42          # put file back to pre-event-42 state
-$ redhand restore --path src/app.py    # undo the latest change of a file
+$ redhand restore --yes --path src/app.py    # undo the latest change (--yes writes)
 
 $ redhand protect add secrets/ *.key .env
 $ redhand watch --enforce     # auto-revert changes to protected paths
@@ -151,7 +153,7 @@ Known limitations (by design, all visible in `status`):
 | `watch` | journal changes live (`--once`, `--interval S`, `--enforce`) |
 | `digest` | markdown report (`--since 2h`, `--actor claude`, `--out file.md`) |
 | `log` | recent events, newest first (`--since`, `--actor`, `--path`, `--event`) |
-| `restore` | `--list` / `<event-id>` / `--path p` / `--dry-run` |
+| `restore` | `--list` / `<event-id>` / `--path p` · dry-run by default, `--yes` writes, `--force` skips freshness check |
 | `protect` | list / add / remove protected patterns |
 | `status` | root, tracking and storage overview |
 | `actors` | probe for running agent processes |

@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import os
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -118,6 +119,8 @@ def test_failed_store_does_not_destroy_undo_targets(tmp_path):
     try:
         seed_file(jj, root, "f.txt", "precious")
         # a modification whose undo target is the pre-change content blob
+        # (land it on disk first, exactly like the watcher would record it)
+        write(os.path.join(root, "f.txt"), "after")
         row = jj.shadow_row("f.txt")
         ev = jj.record_change(
             ts=time.time(), run_id=None, path="f.txt", event_type="modified",
@@ -192,7 +195,8 @@ def test_restore_replaces_planted_symlink(tmp_path):
         os.remove(os.path.join(root, "f.txt"))
         os.symlink(str(victim), os.path.join(root, "f.txt"))
 
-        restore_event(jj, root, ev2)
+        # the planted link is an unrecorded state -> freshness guard demands force
+        restore_event(jj, root, ev2, force=True)
         assert victim.read_text() == "victim"  # target untouched
         p = os.path.join(root, "f.txt")
         assert not os.path.islink(p) and os.path.isfile(p)  # link replaced
@@ -208,6 +212,7 @@ def test_corrupt_blob_gives_clean_error(tmp_path):
     try:
         seed_file(jj, root, "f.txt", "data")
         row = jj.shadow_row("f.txt")
+        write(os.path.join(root, "f.txt"), "after")  # land the change on disk
         ev = jj.record_change(
             ts=time.time(), run_id=None, path="f.txt", event_type="modified",
             actor="manual", confidence="low", old_size=4, new_size=5,
@@ -237,30 +242,82 @@ def test_interval_clamped(tmp_path):
 # ---------------------------------------------------------------- integration
 
 
+def _wait_for_event(root, path, event_type, timeout=5.0):
+    """Poll the journal (written by the live watcher process) until an event
+    of `event_type` for `path` shows up — deterministic, unlike sleeps."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        jj = Journal(root)
+        try:
+            rows = jj.events(path=path, event_type=event_type, order="DESC", limit=1)
+            if rows:
+                return rows[0]
+        finally:
+            jj.close()
+        time.sleep(0.05)
+    raise AssertionError(f"{event_type} event for {path} did not appear within {timeout}s")
+
+
+def _wait_for_actor_events(root, actor, path, min_count, timeout=5.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        jj = Journal(root)
+        try:
+            rows = jj.events(actor=actor, path=path, order="DESC", limit=100)
+            if len(rows) >= min_count:
+                return rows
+        finally:
+            jj.close()
+        time.sleep(0.05)
+    raise AssertionError(f"{min_count} {actor} events for {path} did not appear within {timeout}s")
+
+
+def _wait_for_shadow(root, path, timeout=5.0):
+    """Wait for the watcher's first seeding pass: a file present during
+    seeding is absorbed into the shadow SILENTLY (no event), so tests must
+    wait for seeding before creating the files they want journalled."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        jj = Journal(root)
+        try:
+            if jj.shadow_row(path) is not None:
+                return
+        finally:
+            jj.close()
+        time.sleep(0.05)
+    raise AssertionError(f"{path} was not seeded within {timeout}s")
+
+
 def test_restore_while_watch_running(tmp_path):
     """Cross-process: live watcher + CLI restore on the same DB must not
     crash, corrupt, or double-record."""
     root = str(tmp_path / "r")
     os.makedirs(root)
-    env = dict(os.environ, PYTHONPATH=os.path.join(os.path.dirname(__file__), "..", "src"))
+    # a canary file pre-dating the watcher lets us wait deterministically
+    # for the seeding pass instead of sleeping
+    write(os.path.join(root, ".seed-canary"), "canary")
+    src = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+    env = dict(os.environ, PYTHONPATH=src)
     proc = subprocess.Popen(
         [sys.executable, "-m", "redhand", "watch", "--interval", "0.3"],
         cwd=root, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     try:
-        time.sleep(1.2)  # seed
+        _wait_for_shadow(root, ".seed-canary")
         p = os.path.join(root, "f.txt")
         write(p, "v1")
-        time.sleep(1.0)  # created event
+        _wait_for_event(root, "f.txt", "created")
         write(p, "v2")
-        time.sleep(1.0)  # modified event
+        _wait_for_event(root, "f.txt", "modified")  # journal now knows v2
 
-        # restore from a second process while the watcher is live
-        rc = main(["--root", root, "restore", "--path", "f.txt"])
+        # restore from a second process while the watcher is live:
+        # the journal has recorded v2, so the freshness guard passes and
+        # the latest event (modified) is undone -> v1
+        rc = main(["--root", root, "restore", "--yes", "--path", "f.txt"])
         assert rc == 0
         assert open(p).read() == "v1"
-        time.sleep(1.2)
+        _wait_for_actor_events(root, "redhand", "f.txt", min_count=1)
     finally:
         if sys.platform == "win32":
             proc.terminate()  # no SIGINT on windows; kill is the equivalent
@@ -272,7 +329,17 @@ def test_restore_while_watch_running(tmp_path):
             proc.kill()
             out, err = proc.communicate()
     assert b"Traceback" not in err
-    jj = Journal(root)
+    # terminate() kills the watcher hard on Windows; the WAL handles take a
+    # moment to be released, so open the journal with a bounded retry
+    jj = None
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        try:
+            jj = Journal(root)
+            break
+        except sqlite3.OperationalError:
+            time.sleep(0.25)
+    assert jj is not None, "journal did not reopen after watcher shutdown"
     try:
         events = [e for e in jj.events() if e["path"] == "f.txt"]
         kinds = [e["event"] for e in events]
@@ -281,6 +348,44 @@ def test_restore_while_watch_running(tmp_path):
         assert kinds.count("modified") == 2  # v1->v2 by manual, v2->v1 by redhand
     finally:
         jj.close()
+
+
+def test_restore_while_watch_running_refuses_stale(tmp_path, capsys):
+    """The data-loss guard: v2 lands on disk before the watcher recorded it,
+    so restore must refuse (dry-run by default) instead of undoing the stale
+    'created' event and deleting the file."""
+    root = str(tmp_path / "r")
+    os.makedirs(root)
+    write(os.path.join(root, ".seed-canary"), "canary")
+    src = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+    env = dict(os.environ, PYTHONPATH=src)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "redhand", "watch", "--interval", "2"],
+        cwd=root, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    try:
+        _wait_for_shadow(root, ".seed-canary")
+        p = os.path.join(root, "f.txt")
+        write(p, "v1")
+        _wait_for_event(root, "f.txt", "created")
+        write(p, "v2")  # on disk, NOT yet journalled
+        rc = main(["--root", root, "restore", "--path", "f.txt"])
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "unrecorded changes" in err and "--force" in err
+        assert os.path.exists(p) and open(p).read() == "v2"
+    finally:
+        if sys.platform == "win32":
+            proc.terminate()
+        else:
+            proc.send_signal(signal.SIGINT)
+        try:
+            out, err = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out, err = proc.communicate()
+    assert b"Traceback" not in err
 
 
 # ---------------------------------------------------------------- round-2 fixes
@@ -380,7 +485,7 @@ def test_actor_kinds_and_restore_run(tmp_path, monkeypatch):
         row = jj.shadow_row("f.txt")
         ev = jj.record_change(
             ts=_t.time(), run_id=None, path="f.txt", event_type="modified",
-            actor="codex", confidence="high", old_size=4, new_size=4,
+            actor="codex", confidence="high", old_size=3, new_size=3,
             old_hash=None, new_hash=None, mtime_ns=2,
             pre_blob_id=row["blob_id"], new_content=b"two",
             blob_cap_total=1024 * 1024,
@@ -398,7 +503,7 @@ def test_actor_kinds_and_restore_run(tmp_path, monkeypatch):
             pre_blob_id=None, new_content=b"123", blob_cap_total=1024 * 1024,
         )
         write(os.path.join(root, "grew.txt"), "1234567890")  # grew outside the journal
-        out2 = restore_event(jj, root, ev_grow)
+        out2 = restore_event(jj, root, ev_grow, force=True)
         deleted = jj.event_by_id(out2.new_event_id)
         assert deleted["old_size"] == 10  # current size, not the stale 3
     finally:
@@ -415,13 +520,13 @@ def test_restore_creates_run_row(tmp_path, capsys):
     row = jj.shadow_row("f.txt")
     jj.record_change(
         ts=time.time(), run_id=None, path="f.txt", event_type="modified",
-        actor="manual", confidence="low", old_size=4, new_size=4,
+        actor="manual", confidence="low", old_size=3, new_size=3,
         old_hash=None, new_hash=None, mtime_ns=2,
         pre_blob_id=row["blob_id"], new_content=b"two",
         blob_cap_total=1024 * 1024,
     )
     jj.close()
-    assert main(["--root", root, "restore", "--path", "f.txt"]) == 0
+    assert main(["--root", root, "restore", "--yes", "--path", "f.txt"]) == 0
     jj = Journal(root)
     try:
         run = jj.last_run()

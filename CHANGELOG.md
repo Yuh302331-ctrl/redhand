@@ -3,6 +3,34 @@
 All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+
+## [Unreleased]
+
+### Fixed
+- **Data loss on `restore` while `watch` was running (Windows/any OS)**:
+  restoring `--path` right after a file changed — before the watcher recorded
+  it — picked up the stale `created` event and, following the "restore to
+  before it existed" semantics, **deleted the file** along with the unrecorded
+  content. `restore_event`/`undo_latest` now run a freshness check (disk
+  size/mtime/sha256 vs the shadow row) and refuse with
+  `RestoreError` ("…unrecorded changes… use --force") when they disagree.
+
+### Changed
+- `restore` is now a **dry-run by default**: pass `--yes` to actually write
+  to disk (applies to the `created`-undo file removal as well).
+- New `restore --force` flag skips the freshness check for intentional
+  overrides (e.g. restoring a deliberately-planted symlink in tests).
+- `actors._run` decodes process-probe output with `errors="replace"`, so
+  non-UTF-8 `tasklist` output (CJK Windows) no longer kills the probe thread
+  and spams the watcher's stderr.
+
+### Tests
+- `test_restore_while_watch_running` polls the journal (≤5 s) instead of
+  sleeping, waits for the watcher's seeding pass via a canary file, passes
+  `--yes`, and no longer depends on the developer's machine state; a new
+  regression test covers the refuse-on-unrecorded-changes path with the
+  default 2 s interval.
+
 ## [0.2.0] - 2026-11-21
 
 ### Added

@@ -74,6 +74,7 @@ def _run(cmd: Sequence[str], timeout: float = _PS_TIMEOUT) -> Optional[str]:
             list(cmd),
             capture_output=True,
             text=True,
+            errors="replace",  # tasklist/locale output can carry non-UTF-8 bytes
             timeout=timeout,
         )
         if out.returncode != 0:
