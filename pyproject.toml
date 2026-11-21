@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "redhand"
-version = "0.2.0"
+version = "0.2.1"
 description = "Catch file changes red-handed: a cross-agent change journal that answers 'who edited this file?' and puts it back if needed."
 readme = "README.md"
 requires-python = ">=3.9"

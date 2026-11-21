@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 
 import pytest
@@ -296,3 +297,69 @@ def test_summary_counts(jroot, monkeypatch):
 
 
 # the mid-scan dedup race now lives in tests/test_race_dedup.py
+
+
+# ---------------------------------------------------------------- broad-watch banner
+
+
+def test_broad_watch_reason(tmp_path):
+    from redhand.watch import Watcher
+    from redhand.config import Config
+    from redhand.journal import Journal
+    from redhand.util import Palette
+    import io
+
+    jj = Journal(str(tmp_path))  # lives elsewhere; the root below is only lexical
+    try:
+        deep = os.path.join(os.getcwd(), "a", "b")  # >= 3 path parts
+        for path, expect in ((deep, False), ("/", True),
+                             (os.path.expanduser("~"), True)):
+            w = Watcher(path, Config(), jj, palette=Palette(False), out=io.StringIO())
+            assert bool(w._broad_watch_reason()) is expect, path
+    finally:
+        jj.close()
+
+
+def test_broad_banner_printed(tmp_path, monkeypatch):
+    from redhand.config import load_config
+    from redhand.journal import Journal
+    from redhand.watch import Watcher
+    from redhand.util import Palette
+
+    cfg = load_config(str(tmp_path))
+    jj = Journal(str(tmp_path))
+    try:
+        w = Watcher(str(tmp_path), cfg, jj, palette=Palette(False),
+                    out=io.StringIO(), once=True, interval=0.01)
+        monkeypatch.setattr(w, "_broad_watch_reason",
+                            lambda: "the watched root contains your home directory")
+        out = w.out
+        w.run()
+        assert "broad watch" in out.getvalue()
+        assert "attribution can over-credit" in out.getvalue()
+    finally:
+        jj.close()
+
+
+def test_seed_progress_printed_for_many_files(tmp_path):
+    from redhand.config import load_config
+    from redhand.journal import Journal
+    from redhand.watch import Watcher
+    from redhand.util import Palette
+
+    root = str(tmp_path / "big")
+    os.makedirs(root)
+    for i in range(2100):
+        write(os.path.join(root, f"f{i:05d}.txt"), "x")
+    cfg = load_config(root)
+    jj = Journal(root)
+    try:
+        out = io.StringIO()
+        w = Watcher(root, cfg, jj, palette=Palette(False), out=out,
+                    once=True, interval=0.01)
+        w.run()
+        text = out.getvalue()
+        assert "2100 files found" in text
+        assert "2000/2100 files" in text  # progress lines land on multiples of 500
+    finally:
+        jj.close()

@@ -318,6 +318,16 @@ class Watcher:
 
     # ---------------------------------------------------------- passes
 
+    def _broad_watch_reason(self) -> Optional[str]:
+        """Watched roots this broad make cwd-based attribution noisy: flag them."""
+        parts = self.root.strip(os.sep).split(os.sep)
+        if len(parts) <= 2:
+            return f"'{self.root}' is close to the filesystem root"
+        home = os.path.expanduser("~")
+        if self.root == home or home.lower().startswith(self.root.lower() + os.sep):
+            return "the watched root contains your home directory"
+        return None
+
     def _initial_pass(self) -> bool:
         """Seed the shadow exactly once per root (tracked in journal meta).
 
@@ -331,12 +341,17 @@ class Watcher:
         self._p(self.pal.dim("first run: scanning and seeding shadow…"))
         t0 = time.time()
         fs_entries = _scanner.scan_tree(self.root, self.cfg.ignore)
+        total = len(fs_entries)
+        if total > 2000:
+            self._p(self.pal.dim(f"{total} files found; hashing may take a while"))
         entries = []
-        for path, e in fs_entries.items():
+        for i, (path, e) in enumerate(fs_entries.items()):
             # specials (FIFOs etc.) and symlinked non-regular targets are never
             # opened: hashing one would block forever
             sha = None if e.special else safe_hash(self._abs(path), self.cfg.hash_limit)
             entries.append({"path": path, "size": e.size, "mtime_ns": e.mtime_ns, "sha256": sha})
+            if total > 2000 and (i + 1) % 500 == 0:
+                self._p(self.pal.dim(f"  {i + 1}/{total} files"))
         entries.sort(key=lambda x: x["path"])
 
         def content_of(p: str) -> Optional[bytes]:
@@ -469,6 +484,12 @@ class Watcher:
                 f"{self.pal.bold('redhand')} watching {self.pal.cyan(self.root)}  "
                 + self.pal.dim(f"(interval {self.interval:g}s, ctrl-c to stop)")
             )
+            broad = self._broad_watch_reason()
+            if broad:
+                self._p(self.pal.yellow(
+                    "broad watch: " + broad + " — attribution can over-credit an "
+                    "agent whose working directory covers this tree; narrow the "
+                    "root for precise attribution"))
             seeded = self._initial_pass()
             while not self._stop:
                 self._sleep()

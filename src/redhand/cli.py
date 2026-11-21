@@ -65,6 +65,24 @@ def cmd_init(args, cfg) -> int:
         json.dump(INITIAL_CONFIG_TEMPLATE, f, indent=2, ensure_ascii=False)
         f.write("\n")
     print(f"wrote {path}")
+
+    gitignore = os.path.join(args.root, ".gitignore")
+    marker = ".whodunit/"
+    try:
+        existing = open(gitignore, encoding="utf-8").read() if os.path.exists(gitignore) else None
+        if existing is None:
+            with open(gitignore, "w", encoding="utf-8") as f:
+                f.write("# redhand journal state\n" + marker + "\n")
+            print(f"wrote {gitignore} (ignores the journal)")
+        elif marker not in existing:
+            with open(gitignore, "a", encoding="utf-8") as f:
+                if not existing.endswith("\n"):
+                    f.write("\n")
+                f.write("\n# redhand journal state\n" + marker + "\n")
+            print(f"added {marker} to {gitignore}")
+    except OSError as exc:
+        print(f"note: could not update .gitignore: {exc}", file=sys.stderr)
+
     print("next:")
     print(f"  cd {args.root} && redhand watch          # start journaling")
     print("  redhand protect add secrets/ *.key       # guard sensitive paths")

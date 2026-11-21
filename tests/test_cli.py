@@ -231,3 +231,27 @@ def test_watch_once_via_cli(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "seeded 1 files" in out
     assert "session" in out
+
+
+# ---------------------------------------------------------------- init gitignore
+
+
+def test_init_gitignore_created(tmp_path):
+    root = str(tmp_path / "g1")
+    os.makedirs(root)
+    assert run("init", root=root) == 0
+    gi = os.path.join(root, ".gitignore")
+    assert os.path.exists(gi) and ".whodunit/" in open(gi).read()
+
+
+def test_init_gitignore_appends_without_dup(tmp_path):
+    root = str(tmp_path / "g2")
+    os.makedirs(root)
+    gi = os.path.join(root, ".gitignore")
+    with open(gi, "w") as f:
+        f.write("node_modules/\n")  # no trailing newline on purpose
+    assert run("init", root=root) == 0
+    body = open(gi).read()
+    assert body.count(".whodunit/") == 1 and "node_modules/" in body
+    assert run("init", root=root) == 0  # idempotent
+    assert open(gi).read().count(".whodunit/") == 1
