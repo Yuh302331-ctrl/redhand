@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import sys
+
+import pytest
 
 from redhand import actors as A
 from redhand.actors import (
