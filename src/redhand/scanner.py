@@ -22,7 +22,7 @@ import stat as _stat
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from .util import PatternSet, sha256_bytes, sha256_file
+from .util import PatternSet, safe_hash, sha256_bytes
 
 EVENT_CREATED = "created"
 EVENT_MODIFIED = "modified"
@@ -163,7 +163,9 @@ def diff_against_shadow(
                     )
                 )
             elif old["sha256"]:
-                digest = sha256_file(abs_path)
+                # safe_hash resolves symlinks to their target and refuses
+                # non-regular or oversized targets instead of opening them
+                digest = safe_hash(abs_path, hash_limit)
                 if digest is None:
                     # transient read failure (EACCES) or the file vanished
                     # between scan and hash: skip this cycle — recording now

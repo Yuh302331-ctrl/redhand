@@ -6,6 +6,7 @@ import datetime as _dt
 import errno
 import hashlib
 import os
+import stat
 import time
 from fnmatch import fnmatch
 from typing import Iterable, List, Optional, Union
@@ -110,6 +111,27 @@ def sha256_file(path: str) -> Optional[str]:
     return h.hexdigest()
 
 
+def safe_hash(path: str, size_limit: int) -> Optional[str]:
+    """Hash a path WITHOUT ever opening a non-regular target.
+
+    Symlinks are resolved first: if the target is not a regular file
+    (FIFO/socket/device/missing) or exceeds size_limit, return None instead
+    of opening it — opening a named pipe would block forever.
+    """
+    try:
+        st = os.lstat(path)
+        if stat.S_ISLNK(st.st_mode):
+            try:
+                st = os.stat(path)  # follow the link
+            except OSError:
+                return None
+        if not stat.S_ISREG(st.st_mode) or st.st_size > size_limit:
+            return None
+    except OSError:
+        return None
+    return sha256_file(path)
+
+
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -147,17 +169,30 @@ def write_file_nofollow(path: str, data: bytes) -> None:
     and replaced by a regular file — journal content must never be written
     *through* a link to some other file.
     """
+    mode = None
+    try:
+        st = os.lstat(path)
+        if stat.S_ISREG(st.st_mode):
+            mode = stat.S_IMODE(st.st_mode)  # preserve permissions of the file we replace
+    except OSError:
+        pass
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o644)
     except OSError as exc:
-        if exc.errno == getattr(errno, "ELOOP", None) or exc.errno == getattr(errno, "EMLINK", None):
-            # symlink in the way: replace it with a regular file
+        if exc.errno == errno.ELOOP:
+            # a symlink is in the way: replace it with a regular file so the
+            # restored content lands HERE, never at the link's target
             os.remove(path)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
         else:
             raise
     with os.fdopen(fd, "wb") as f:
         f.write(data)
+    if mode is not None:
+        try:
+            os.chmod(path, mode)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------- pattern matching

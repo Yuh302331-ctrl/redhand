@@ -4,6 +4,7 @@ restore-while-watch integration."""
 
 from __future__ import annotations
 
+import io
 import os
 import signal
 import subprocess
@@ -13,10 +14,18 @@ import time
 import pytest
 
 from redhand.cli import main
+from redhand.config import load_config
 from redhand.journal import Journal
 from redhand.restore import RestoreError, restore_event
 from redhand.scanner import scan_tree
+from redhand.util import Palette, PatternSet, safe_hash
 from helpers import seed_file, write
+
+
+def make_watcher(jroot, journal, cfg, **kw):
+    from redhand.watch import Watcher
+
+    return Watcher(jroot, cfg, journal, palette=Palette(enabled=False), out=io.StringIO(), **kw)
 
 
 # ---------------------------------------------------------------- specials
@@ -263,5 +272,151 @@ def test_restore_while_watch_running(tmp_path):
         assert "created" in kinds and "modified" in kinds
         # content history stays coherent: the restore is recorded exactly once
         assert kinds.count("modified") == 2  # v1->v2 by manual, v2->v1 by redhand
+    finally:
+        jj.close()
+
+
+# ---------------------------------------------------------------- round-2 fixes
+
+
+def test_symlink_to_fifo_never_blocks(tmp_path):
+    """symlink -> FIFO: hashing must refuse to open the target (would block)."""
+    root = str(tmp_path / "r")
+    os.makedirs(root)
+    os.mkfifo(os.path.join(root, "pipe"))
+    os.symlink("pipe", os.path.join(root, "alias"))  # relative symlink to the FIFO
+    # direct helper semantics
+    assert safe_hash(os.path.join(root, "alias"), 1024 * 1024) is None
+    assert safe_hash(os.path.join(root, "pipe"), 1024 * 1024) is None
+    # and the whole watch cycle completes without hanging
+    assert main(["--root", root, "watch", "--once", "--interval", "0.05"]) == 0
+
+
+def test_transient_hash_failure_skips_then_records(tmp_path, monkeypatch):
+    """A failing hash read must not downgrade the file or emit a phantom event."""
+    import redhand.scanner as S
+
+    root = str(tmp_path / "r")
+    os.makedirs(root)
+    write(os.path.join(root, "a.txt"), "v1")
+    cfg = load_config(root)
+    jj = Journal(root)
+    try:
+        make_watcher(jroot=root, journal=jj, cfg=cfg, once=True, interval=0.01).run()
+        assert len(jj.events()) == 0  # seeded silently
+        write(os.path.join(root, "a.txt"), "v2")
+        # next cycle: hash read fails transiently
+        orig = S.safe_hash
+        monkeypatch.setattr(S, "safe_hash", lambda p, lim: None if p.endswith("a.txt") else orig(p, lim))
+        w = make_watcher(jroot=root, journal=jj, cfg=cfg, once=True, interval=0.01)
+        summary = w.run()
+        assert summary.events == 0  # nothing recorded this cycle
+        assert jj.shadow_row("a.txt")["sha256"] is not None  # not downgraded
+        monkeypatch.undo()
+        # following cycle: hash works again -> real modification recorded
+        w2 = make_watcher(jroot=root, journal=jj, cfg=cfg, once=True, interval=0.01)
+        summary2 = w2.run()
+        assert summary2.events == 1
+        rows = [e for e in jj.events() if e["path"] == "a.txt"]
+        assert rows[0]["event"] == "modified"
+    finally:
+        jj.close()
+
+
+def test_enforce_survives_corrupt_blob(tmp_path):
+    """A corrupted undo blob during --enforce must not kill the watcher."""
+    root = str(tmp_path / "r")
+    os.makedirs(root)
+    write(os.path.join(root, ".env"), "KEEP=1")
+    cfg = load_config(root)
+    cfg.protect = PatternSet([".env"])
+    jj = Journal(root)
+    try:
+        make_watcher(jroot=root, journal=jj, cfg=cfg, once=True, interval=0.01).run()
+    finally:
+        jj.close()
+    write(os.path.join(root, ".env"), "LEAK=1")
+    jj = Journal(root)
+    try:
+        # corrupt every blob: the pre-change content is unreadable
+        jj.conn.execute("UPDATE blobs SET content=X'00'")
+        jj.conn.commit()
+        w = make_watcher(jroot=root, journal=jj, cfg=cfg, once=True, enforce=True, interval=0.01)
+        w.run()  # must not raise
+        assert open(os.path.join(root, ".env")).read() == "LEAK=1"  # revert impossible, file intact
+    finally:
+        jj.close()
+
+
+def test_actor_kinds_and_restore_run(tmp_path, monkeypatch):
+    import time as _t
+
+    import redhand.watch as W
+
+    # no agents running -> manual attribution, through the REAL record path
+    monkeypatch.setattr(W._actors, "agents_running", lambda sigs, exclude_pid=None: [])
+
+    root = str(tmp_path / "r")
+    os.makedirs(root)
+    write(os.path.join(root, "f.txt"), "one")
+    cfg = load_config(root)
+    jj = Journal(root)
+    try:
+        make_watcher(jroot=root, journal=jj, cfg=cfg, once=True, interval=0.01).run()
+        write(os.path.join(root, "h.txt"), "by hand")
+        make_watcher(jroot=root, journal=jj, cfg=cfg, once=True, interval=0.01).run()
+        kinds = {a["name"]: a["kind"] for a in jj.actors()}
+        assert kinds["manual"] == "human"  # no kind override at the call site
+        write(os.path.join(root, "f.txt"), "two")
+        # simulate an agent working here: codex records the modification
+        row = jj.shadow_row("f.txt")
+        ev = jj.record_change(
+            ts=_t.time(), run_id=None, path="f.txt", event_type="modified",
+            actor="codex", confidence="high", old_size=4, new_size=4,
+            old_hash=None, new_hash=None, mtime_ns=2,
+            pre_blob_id=row["blob_id"], new_content=b"two",
+            blob_cap_total=1024 * 1024,
+        )
+        jj.get_or_create_actor("codex")  # no override: default kind applies
+        restore_event(jj, root, ev, run_id=None)  # registers 'redhand' itself
+        kinds = {a["name"]: a["kind"] for a in jj.actors()}
+        assert kinds["codex"] == "agent" and kinds["redhand"] == "tool"
+        # created-restore metadata: records the CURRENT state, not creation-time
+        write(os.path.join(root, "grew.txt"), "12345678")
+        ev_grow = jj.record_change(
+            ts=_t.time(), run_id=None, path="grew.txt", event_type="created",
+            actor="manual", confidence="low", old_size=None, new_size=3,
+            old_hash=None, new_hash=None, mtime_ns=3,
+            pre_blob_id=None, new_content=b"123", blob_cap_total=1024 * 1024,
+        )
+        write(os.path.join(root, "grew.txt"), "1234567890")  # grew outside the journal
+        out2 = restore_event(jj, root, ev_grow)
+        deleted = jj.event_by_id(out2.new_event_id)
+        assert deleted["old_size"] == 10  # current size, not the stale 3
+    finally:
+        jj.close()
+
+
+def test_restore_creates_run_row(tmp_path, capsys):
+    root = str(tmp_path / "r")
+    os.makedirs(root)
+    write(os.path.join(root, "f.txt"), "one")
+    jj = Journal(root)
+    seed_file(jj, root, "f.txt", "one")
+    write(os.path.join(root, "f.txt"), "two")
+    row = jj.shadow_row("f.txt")
+    jj.record_change(
+        ts=time.time(), run_id=None, path="f.txt", event_type="modified",
+        actor="manual", confidence="low", old_size=4, new_size=4,
+        old_hash=None, new_hash=None, mtime_ns=2,
+        pre_blob_id=row["blob_id"], new_content=b"two",
+        blob_cap_total=1024 * 1024,
+    )
+    jj.close()
+    assert main(["--root", root, "restore", "--path", "f.txt"]) == 0
+    jj = Journal(root)
+    try:
+        run = jj.last_run()
+        assert run["note"] == "restore" and run["ended_at"] is not None
     finally:
         jj.close()

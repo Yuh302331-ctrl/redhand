@@ -33,7 +33,7 @@ except ImportError:  # pragma: no cover
 from . import actors as _actors
 from . import scanner as _scanner
 from .config import Config
-from .journal import Journal
+from .journal import Journal, JournalError
 from .util import (
     CONFIDENCE_MARK,
     EVENT_COLOR,
@@ -42,7 +42,7 @@ from .util import (
     human_size,
     is_probably_text,
     read_file_bytes,
-    sha256_file,
+    safe_hash,
     write_file_nofollow,
 )
 
@@ -206,6 +206,15 @@ class Watcher:
 
     # ---------------------------------------------------------- protect enforcement
 
+    def _undo_blob(self, event: Optional[dict]) -> Optional[bytes]:
+        """Pre-change content of an event; JournalError (corrupt blob) -> None."""
+        if not event:
+            return None
+        try:
+            return self.jj.get_blob(event["blob_id"])
+        except JournalError:
+            return None
+
     def _enforce_revert(
         self, change: _scanner.DetectedChange, event_id: int, ts: float, run_id: int
     ) -> bool:
@@ -235,7 +244,7 @@ class Watcher:
                 # the shadow row is already gone; the pre-deletion content
                 # lives in the deletion event's blob
                 event = self.jj.event_by_id(event_id)
-                content = self.jj.get_blob(event["blob_id"]) if event else None
+                content = self._undo_blob(event)
                 if content is None:
                     return False
                 os.makedirs(os.path.dirname(abs_path) or ".", exist_ok=True)
@@ -255,7 +264,7 @@ class Watcher:
 
             # modified: put the pre-change content (referenced by the event) back
             event = self.jj.event_by_id(event_id)
-            content = self.jj.get_blob(event["blob_id"]) if event else None
+            content = self._undo_blob(event)
             if content is None:
                 return False
             write_file_nofollow(abs_path, content)
@@ -292,10 +301,9 @@ class Watcher:
         fs_entries = _scanner.scan_tree(self.root, self.cfg.ignore)
         entries = []
         for path, e in fs_entries.items():
-            # specials (FIFOs etc.) are never opened: hashing would block forever
-            sha = None if e.special else (
-                sha256_file(self._abs(path)) if e.size <= self.cfg.hash_limit else None
-            )
+            # specials (FIFOs etc.) and symlinked non-regular targets are never
+            # opened: hashing one would block forever
+            sha = None if e.special else safe_hash(self._abs(path), self.cfg.hash_limit)
             entries.append({"path": path, "size": e.size, "mtime_ns": e.mtime_ns, "sha256": sha})
         entries.sort(key=lambda x: x["path"])
 
@@ -350,7 +358,7 @@ class Watcher:
                 if self._already_recorded(change):
                     continue  # another redhand process recorded it while we scanned
                 self._process_change(change, ts, run_id, attr.get(change.path))
-            except sqlite3.Error as exc:
+            except (sqlite3.Error, JournalError) as exc:
                 self._p(self.pal.red(f"journal error on {change.path}: {exc}"))
         return changes
 
@@ -436,7 +444,7 @@ class Watcher:
                     break
                 try:
                     self._diff_pass(run_id)
-                except (OSError, sqlite3.Error) as exc:
+                except (OSError, sqlite3.Error, JournalError) as exc:
                     self._p(self.pal.red(f"scan error: {exc}"))
                 if self.once:
                     break

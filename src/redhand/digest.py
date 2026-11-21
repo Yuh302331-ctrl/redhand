@@ -115,7 +115,7 @@ def build_digest(
         out.append("")
 
     # ---- restore hints
-    restorable = journal.events(since=since, until=until, restorable_only=True, order="DESC", limit=5)
+    restorable = journal.events(since=since, until=until, actor=actor, restorable_only=True, order="DESC", limit=5)
     n_restorable = sum(1 for e in events if e["blob_id"])
     out.append("## Restore")
     out.append("")
