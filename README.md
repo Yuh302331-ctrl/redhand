@@ -63,9 +63,11 @@ Zero runtime dependencies. Python 3.9+. macOS, Linux and Windows.
 ## Install
 
 ```console
-$ pipx install redhand        # or: uv tool install redhand
-$ pip install redhand         # also fine
+$ pipx install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
+$ uv tool install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
+$ pip install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
 ```
+(Not on PyPI yet — the name is reserved for this project's next release.)
 
 ## Quickstart
 

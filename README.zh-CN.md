@@ -48,9 +48,11 @@ session: 5s · 12 events · 1 touches · 1 protected · 1 reverted
 ## 安装
 
 ```console
-$ pipx install redhand        # 或 uv tool install redhand
-$ pip install redhand         # 也可以
+$ pipx install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
+$ uv tool install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
+$ pip install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
 ```
+（尚未发布 PyPI——这个名字留给本项目下个版本。）
 
 ## 快速上手
 
