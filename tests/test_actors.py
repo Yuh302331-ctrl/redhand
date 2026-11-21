@@ -59,6 +59,7 @@ def test_classify_empty_and_unusable():
 # ---------------------------------------------------------------- cwd resolution
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="cwd resolution is POSIX-only (returns all-None on windows)")
 def test_resolve_cwds_parses_lsof(monkeypatch):
     # real lsof -F0pcn shape: p<pid>\0c<cmd>\0n<path>\0 ...
     out = "p123\0cclaude\0n/Users/x/proj\0p456\0ccodex\0n/Users/y\0"
@@ -126,6 +127,7 @@ def test_attribute_manual_when_no_agents():
     assert attribute(root, [], [_agent(1, "claude", "/x")]) == {}
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="pure-posix lexical paths")
 def test_is_under():
     assert _is_under("/a/b/c", "/a/b")
     assert _is_under("/a/b", "/a/b")

@@ -262,7 +262,10 @@ def test_restore_while_watch_running(tmp_path):
         assert open(p).read() == "v1"
         time.sleep(1.2)
     finally:
-        proc.send_signal(signal.SIGINT)
+        if sys.platform == "win32":
+            proc.terminate()  # no SIGINT on windows; kill is the equivalent
+        else:
+            proc.send_signal(signal.SIGINT)
         try:
             out, err = proc.communicate(timeout=10)
         except subprocess.TimeoutExpired:
@@ -461,6 +464,7 @@ def test_file_growing_beyond_hash_limit_is_journaled(tmp_path):
         jj.close()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only (mkfifo)")
 def test_write_file_nofollow_refuses_fifo(tmp_path):
     """Restore/enforce writes must fail cleanly on a planted FIFO, not hang."""
     import errno as _errno
