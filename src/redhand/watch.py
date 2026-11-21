@@ -122,6 +122,7 @@ class Watcher:
         once: bool = False,
         enforce: bool = False,
         interval: Optional[float] = None,
+        adaptive: bool = True,
     ):
         self.root = os.path.abspath(root)
         self.cfg = cfg
@@ -137,6 +138,12 @@ class Watcher:
             raw_interval = cfg.interval
         # guard against --interval 0 busy-looping the watcher
         self.interval = max(0.1, raw_interval)
+        # activity-adaptive cadence: when a tick finds changes, poll fast to
+        # narrow the collapse window (default interval/6, min 0.3s); N quiet
+        # ticks in a row settle back to the base interval. Opt-out via flag.
+        self.adaptive = adaptive
+        self.fast_interval = max(0.3, self.interval / 6)
+        self._quiet_ticks = 0
         self._stop = False
         # session counters
         self.n_events = 0
@@ -482,7 +489,10 @@ class Watcher:
         try:
             self._p(
                 f"{self.pal.bold('redhand')} watching {self.pal.cyan(self.root)}  "
-                + self.pal.dim(f"(interval {self.interval:g}s, ctrl-c to stop)")
+                + self.pal.dim(
+                    f"(interval {self.interval:g}s"
+                    + (", fast-follow on activity" if self.adaptive else "")
+                    + ", ctrl-c to stop)")
             )
             broad = self._broad_watch_reason()
             if broad:
@@ -496,9 +506,15 @@ class Watcher:
                 if self._stop:
                     break
                 try:
-                    self._diff_pass(run_id)
+                    changes = self._diff_pass(run_id)
                 except (OSError, sqlite3.Error, JournalError) as exc:
                     self._p(self.pal.red(f"scan error: {exc}"))
+                    changes = []
+                # adaptive cadence: activity -> fast; 3 quiet ticks -> settle
+                if changes:
+                    self._quiet_ticks = 0
+                else:
+                    self._quiet_ticks = min(self._quiet_ticks + 1, 3)
                 if self.once:
                     break
         finally:
@@ -525,8 +541,16 @@ class Watcher:
             by_actor=dict(self.by_actor),
         )
 
+    def _current_interval(self) -> float:
+        if not self.adaptive:
+            return self.interval
+        # fast while active; settle back after 3 quiet ticks
+        if self._quiet_ticks >= 3:
+            return self.interval
+        return min(self.fast_interval, self.interval)
+
     def _sleep(self) -> None:
-        end = time.time() + self.interval
+        end = time.time() + self._current_interval()
         while not self._stop and time.time() < end:
             time.sleep(min(0.2, max(0.0, end - time.time())))
 

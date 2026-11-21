@@ -54,6 +54,28 @@ See README "Known limitations": poll-window collapse, hash-only tracking for
 large/binary files, mtime-only undetectability for large files, one watcher
 per root, correlation-not-forensics attribution.
 
+## Real-machine integration (2026-11-22, macOS)
+
+Live end-to-end run of the pair on one machine:
+
+1. `redhand watch --enforce` on a scratch project (config: protect `*.key`);
+2. real changes land: `report.md` modified twice, `api.key` tampered;
+3. the watcher journalled everything — the `api.key` tamper was **reverted by
+   protect enforcement** (event flags `[RPr]`: protected, restored);
+4. a transcript claiming "I deleted report.md" (a lie — the file was modified,
+   never deleted) was audited:
+   - **without** the journal: LOW, hedged — "claimed deleted but still exists
+     (usually harmless)";
+   - **with** the journal: **HIGH — "claim is contradicted by the redhand
+     event stream … journal records modified as the last event around the
+     claim (actor codex, timestamp)"**.
+
+Platform honesty: this live run was macOS only. The Windows port is
+CI-verified (unit suite green on windows-latest × 3.11–3.13) but has **no
+real-Windows-machine session verification** — specifically no attribution
+sample (cwd resolution is unavailable there by design) and no journal fixture
+from a real Windows watcher. That gap is documented rather than papered over.
+
 ## Repo state at handover
 
 - 3 commits on `main` (0.1.0 + hardening + docs), clean tree

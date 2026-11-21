@@ -363,3 +363,56 @@ def test_seed_progress_printed_for_many_files(tmp_path):
         assert "2000/2100 files" in text  # progress lines land on multiples of 500
     finally:
         jj.close()
+
+
+# ---------------------------------------------------------------- adaptive polling
+
+
+def test_adaptive_cadence(tmp_path):
+    from redhand.config import Config
+    from redhand.journal import Journal
+    from redhand.watch import Watcher
+    from redhand.util import Palette
+    import io
+
+    cfg = Config()
+    jj = Journal(str(tmp_path))
+    try:
+        w = Watcher(str(tmp_path), cfg, jj, palette=Palette(False),
+                    out=io.StringIO(), interval=2.0, adaptive=True)
+        w._quiet_ticks = 0
+        assert w._current_interval() == pytest.approx(min(2.0 / 6, 2.0))
+        w._quiet_ticks = 1
+        assert w._current_interval() == pytest.approx(min(2.0 / 6, 2.0))
+        w._quiet_ticks = 3
+        assert w._current_interval() == 2.0  # settled back
+        w.adaptive = False
+        assert w._current_interval() == 2.0  # disabled -> always base
+    finally:
+        jj.close()
+
+
+def test_adaptive_resets_on_activity(tmp_path, monkeypatch):
+    """A pass that finds changes resets quiet ticks -> next pass polls fast."""
+    from redhand.config import load_config
+    from redhand.journal import Journal
+    from helpers import write
+
+    cfg = load_config(str(tmp_path))
+    fake_agents(monkeypatch, [])
+    write(os.path.join(tmp_path, "a.txt"), "1")
+    jj = Journal(tmp_path)
+    try:
+        make_watcher(jroot=tmp_path, journal=jj, cfg=cfg, once=True, interval=0.01).run()
+    finally:
+        jj.close()
+    write(os.path.join(tmp_path, "b.txt"), "2")
+    jj = Journal(tmp_path)
+    try:
+        w = make_watcher(jroot=tmp_path, journal=jj, cfg=cfg, once=True, interval=0.01)
+        w._quiet_ticks = 3
+        summary = w.run()
+        assert summary.events == 1
+        assert w._quiet_ticks == 0  # activity reset the backoff
+    finally:
+        jj.close()

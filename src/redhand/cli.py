@@ -101,6 +101,7 @@ def cmd_watch(args, cfg) -> int:
             once=args.once,
             enforce=args.enforce,
             interval=args.interval,
+            adaptive=args.adaptive,
         )
         summary = watcher.run()
         print(session_summary_line(summary, pal))
@@ -350,6 +351,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--interval", type=float, default=None, help="poll seconds (default from config)")
     sp.add_argument("--once", action="store_true", help="single diff pass, then exit")
     sp.add_argument("--enforce", action="store_true", help="auto-revert changes to protected paths")
+    sp.add_argument("--no-adaptive", dest="adaptive", action="store_false",
+                    help="disable activity-adaptive fast-follow polling")
     sp.set_defaults(func=cmd_watch)
 
     sp = sub.add_parser("digest", parents=[common], help="markdown report: who changed what")

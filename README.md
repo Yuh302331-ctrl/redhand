@@ -125,15 +125,20 @@ Every event's undo target is kept as a compressed blob, subject to:
 
 Known limitations (by design, all visible in `status`):
 
-- poll-based scanning (`interval`, default 2 s): two changes inside one window
-  are seen as the final state only;
+- poll-based scanning (`interval`, default 2 s; activity-adaptive fast-follow
+  narrows it to ~interval/6 during change bursts): two changes inside one
+  window are seen as the final state only;
+- **attribution on Windows caps at `medium`**: there is no supported way to
+  read another process's working directory, so "who changed it" answers "some
+  agent was running" there;
 - same-size, same-mtime edits of hash-only (large) files are undetectable;
 - binary files: no content restore, but their changes are still journalled;
 - special files (FIFOs, sockets, devices) are journalled as metadata and never
   opened — opening a named pipe would block forever, so redhand does not;
 - symlinks are tracked as the link itself; content snapshots gate on the
   *target's* real size, so a symlink to a huge file is never read into memory;
-- one watcher per root (flock-enforced); a `restore` from a second terminal is
+- one watcher per root (flock on POSIX, msvcrt.locking on Windows); a
+  `restore` from a second terminal is
   safe — a fresh-shadow check right before recording prevents double entries.
 
 ## Commands
