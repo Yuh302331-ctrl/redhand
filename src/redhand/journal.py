@@ -26,6 +26,7 @@ import os
 import sqlite3
 import time
 import zlib
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import config as _config
@@ -102,11 +103,15 @@ class JournalError(RuntimeError):
 
 
 class Journal:
-    def __init__(self, root: str):
+    def __init__(self, root: str, *, state_dir: Optional[str] = None, read_only: bool = False):
         self.root = os.path.abspath(root)
-        self.state_dir = os.path.join(self.root, _config.STATE_DIR)
-        os.makedirs(self.state_dir, exist_ok=True)
+        self.state_dir = os.path.abspath(state_dir or os.path.join(self.root, _config.STATE_DIR))
         self.db_path = os.path.join(self.state_dir, _config.DB_NAME)
+        if read_only:
+            self.conn = sqlite3.connect(Path(self.db_path).as_uri() + "?mode=ro", uri=True, timeout=10.0)
+            self.conn.row_factory = sqlite3.Row
+            return
+        os.makedirs(self.state_dir, mode=0o700, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path, timeout=10.0)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")

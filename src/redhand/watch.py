@@ -194,7 +194,7 @@ class Watcher:
     def _acquire_lock(self):
         if not (_HAVE_FCNTL or _HAVE_MSVCRT):  # pragma: no cover
             raise WatchError("watch mode requires file locking (macOS/Linux/Windows)")
-        lock_path = os.path.join(self.root, ".whodunit", LOCK_NAME)
+        lock_path = os.path.join(self.jj.state_dir, LOCK_NAME)
         holder = "?"
         try:
             with open(lock_path, "r", encoding="utf-8") as rf:
