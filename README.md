@@ -1,7 +1,6 @@
 # redhand
 
 [![CI](https://github.com/Yuh302331-ctrl/redhand/actions/workflows/ci.yml/badge.svg)](https://github.com/Yuh302331-ctrl/redhand/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/redhand)](https://pypi.org/project/redhand/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Catch file changes red-handed.** A cross-agent change journal for your folders:
@@ -64,18 +63,19 @@ Zero runtime dependencies. Python 3.9+. macOS, Linux and Windows.
 
 ## Install
 
+Install from GitHub using one of these commands.
+
 ```console
 $ pipx install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
 $ uv tool install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
 $ pip install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
 ```
-(Not on PyPI yet — the name is reserved for this project's next release.)
 
 ## Quickstart
 
 ```console
 $ cd your-project
-$ redhand init                # writes .whodunit/config.json
+$ redhand init                # writes config and adds .whodunit/ to .gitignore
 $ redhand watch               # start journaling (ctrl-c to stop)
 
 $ redhand log --limit 20      # what happened recently

@@ -1,7 +1,6 @@
 # redhand
 
 [![CI](https://github.com/Yuh302331-ctrl/redhand/actions/workflows/ci.yml/badge.svg)](https://github.com/Yuh302331-ctrl/redhand/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/redhand)](https://pypi.org/project/redhand/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **当场抓获文件改动。** 一个跨 AI 代理的文件夹改动日志：这个文件是谁改的、什么时候、改了什么——不满意就一键还原。
@@ -47,18 +46,19 @@ session: 5s · 12 events · 1 touches · 1 protected · 1 reverted
 
 ## 安装
 
+任选一条命令从 GitHub 安装。
+
 ```console
 $ pipx install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
 $ uv tool install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
 $ pip install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
 ```
-（尚未发布 PyPI——这个名字留给本项目下个版本。）
 
 ## 快速上手
 
 ```console
 $ cd your-project
-$ redhand init                # 写入 .whodunit/config.json
+$ redhand init                # 写入配置，将 .whodunit/ 加入 .gitignore
 $ redhand watch               # 开始记录（Ctrl-C 停止）
 
 $ redhand log --limit 20      # 最近发生了什么
