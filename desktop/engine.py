@@ -11,6 +11,7 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Event
 
 from agenttrueup.journal_source import JournalSource
 from agenttrueup.scan import scan
@@ -28,12 +29,12 @@ def journal_for(root: Path, state: Path, *, read_only: bool = False) -> Journal:
     return Journal(str(root), state_dir=str(state), read_only=read_only)
 
 
-def record(root: Path, state: Path, *, once: bool) -> None:
+def record(root: Path, state: Path, *, once: bool, stop_event: Event | None = None) -> None:
     cfg = load_config(str(root))
     if state.is_relative_to(root) and state != root:
         cfg.ignore = PatternSet([*cfg.ignore.patterns, f"/{state.relative_to(root).as_posix()}"])
     with journal_for(root, state) as journal, open(os.devnull, "w") as sink:
-        Watcher(str(root), cfg, journal, out=sink, once=once).run()
+        Watcher(str(root), cfg, journal, out=sink, once=once, stop_event=stop_event).run()
 
 
 def list_changes(root: Path, state: Path) -> dict:
@@ -58,7 +59,8 @@ def safe_path(root: Path, relative: str) -> Path:
 
 def read_current(path: Path) -> bytes | None:
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(path, flags | getattr(os, "O_BINARY", 0))
     except FileNotFoundError:
         return None
     with os.fdopen(fd, "rb") as stream:

@@ -7,6 +7,10 @@
 
 [English](README.md)
 
+## 下载桌面应用
+
+[文件改动记录 · GitHub 发行页](https://github.com/Yuh302331-ctrl/redhand/releases/tag/desktop-v0.1.0) 提供 macOS、Windows 和 Linux 下载。打开后点「试用演示」，可以用自带文件看改动前后、确认恢复，再到「核对 AI」页核对示例日志。
+
 ---
 
 ## 痛点

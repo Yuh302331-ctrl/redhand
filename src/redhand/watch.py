@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import signal
+import threading
 import sqlite3
 import stat as _stat
 import sys
@@ -123,6 +124,7 @@ class Watcher:
         enforce: bool = False,
         interval: Optional[float] = None,
         adaptive: bool = True,
+        stop_event: Optional[threading.Event] = None,
     ):
         self.root = os.path.abspath(root)
         self.cfg = cfg
@@ -145,6 +147,7 @@ class Watcher:
         self.fast_interval = max(0.3, self.interval / 6)
         self._quiet_ticks = 0
         self._stop = False
+        self._stop_event = stop_event if stop_event is not None else threading.Event()
         # session counters
         self.n_events = 0
         self.n_touches = 0
@@ -501,9 +504,9 @@ class Watcher:
                     "agent whose working directory covers this tree; narrow the "
                     "root for precise attribution"))
             seeded = self._initial_pass()
-            while not self._stop:
+            while not self._stopping():
                 self._sleep()
-                if self._stop:
+                if self._stopping():
                     break
                 try:
                     changes = self._diff_pass(run_id)
@@ -549,10 +552,16 @@ class Watcher:
             return self.interval
         return min(self.fast_interval, self.interval)
 
+    def _stopping(self) -> bool:
+        return self._stop or self._stop_event.is_set()
+
     def _sleep(self) -> None:
-        end = time.time() + self._current_interval()
-        while not self._stop and time.time() < end:
-            time.sleep(min(0.2, max(0.0, end - time.time())))
+        deadline = time.monotonic() + self._current_interval()
+        while not self._stopping():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            self._stop_event.wait(min(0.2, remaining))
 
     def _sigint_handler(self, signum, frame) -> None:
         self._stop = True
