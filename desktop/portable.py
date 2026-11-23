@@ -50,6 +50,8 @@ class Desk:
         window.geometry("1040x680")
         window.minsize(780, 510)
         window.protocol("WM_DELETE_WINDOW", self.close)
+        self.icon = tk.PhotoImage(master=window, file=str(Path(__file__).parent / "assets" / "FileChangeDesk-64.png"))
+        window.iconphoto(True, self.icon)
         style = ttk.Style(window)
         style.theme_use("clam")
         style.configure("TButton", padding=(12, 7))
@@ -271,7 +273,7 @@ class Desk:
         if not self.root:
             hero = tk.Frame(self.body, background=PAPER)
             hero.place(relx=0.5, rely=0.49, anchor="center")
-            self.label(hero, "↶", size=39, color=TEAL, bold=True).pack(anchor="w")
+            tk.Label(hero, image=self.icon, background=PAPER, borderwidth=0).pack(anchor="w")
             self.label(hero, "文件改动记录", size=31, bold=True).pack(anchor="w", pady=(14, 4))
             self.label(hero, "看看文件被改了什么，需要时恢复到改动前。", size=14, color=MUTED).pack(anchor="w")
             buttons = tk.Frame(hero, background=PAPER)

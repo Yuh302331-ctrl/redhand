@@ -19,6 +19,7 @@ fi
 mkdir -p "$build_dir" "$app/Contents/MacOS" "$app/Contents/Resources"
 architecture=$(uname -m)
 sdk=$(xcrun --sdk macosx --show-sdk-path)
+version=$(cat "$desktop/VERSION")
 xcrun swiftc -swift-version 5 -O -parse-as-library -sdk "$sdk" \
     -target "$architecture-apple-macosx14.0" -o "$app/Contents/MacOS/ChangeDesk" "$desktop/App.swift"
 
@@ -31,7 +32,18 @@ mkdir -p "$app/Contents/Resources/Licenses"
 cp "$desktop/../LICENSE" "$app/Contents/Resources/Licenses/redhand.txt"
 cp "$agenttrueup_source/LICENSE" "$app/Contents/Resources/Licenses/agenttrueup.txt"
 
-cat > "$app/Contents/Info.plist" <<'PLIST'
+icon_source="$desktop/assets/FileChangeDesk.png"
+iconset="$build_dir/FileChangeDesk.iconset"
+mkdir -p "$iconset"
+for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$icon_source" --out "$iconset/icon_${size}x${size}.png" >/dev/null
+    retina=$((size * 2))
+    sips -z "$retina" "$retina" "$icon_source" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$iconset" -o "$app/Contents/Resources/FileChangeDesk.icns"
+cp "$icon_source" "$app/Contents/Resources/FileChangeDesk.png"
+
+cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -42,8 +54,9 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
     <key>CFBundleIdentifier</key><string>local.redhand.ChangeDesk</string>
     <key>CFBundleName</key><string>文件改动记录</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>$version</string>
+    <key>CFBundleVersion</key><string>2</string>
+    <key>CFBundleIconFile</key><string>FileChangeDesk.icns</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>

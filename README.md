@@ -10,7 +10,9 @@ who changed this file, when, what exactly — and put it back if you don't like 
 
 ## Desktop app
 
-[Download File Change Desk](https://github.com/Yuh302331-ctrl/redhand/releases/tag/desktop-v0.1.0)
+<img src="desktop/assets/FileChangeDesk.png" alt="File Change Desk app icon" width="84">
+
+[Download File Change Desk](https://github.com/Yuh302331-ctrl/redhand/releases)
 for macOS, Windows, or Linux. Open the app and choose **试用演示** to compare
 and restore a sample text file, or choose a folder to begin recording changes.
 The **核对 AI** tab checks a local conversation log with agenttrueup.

@@ -63,6 +63,7 @@ def verify_portable(desk_type, result_path: Path) -> None:
             app = desk_type(window, working / "history")
             try:
                 wait_for(window, window.winfo_viewable)
+                assert app.icon.width() == 64 and app.icon.height() == 64
                 click(app, "试用演示")
                 wait_for(window, lambda: app.preview is not None)
                 assert "200 元" in app.preview["before"] and "950 元" in app.preview["current"], app.preview

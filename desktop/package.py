@@ -6,13 +6,15 @@ import argparse
 import os
 import platform
 import shutil
+import struct
 import subprocess
 import sys
 from pathlib import Path
 
 DESKTOP = Path(__file__).resolve().parent
 REDHAND = DESKTOP.parent
-VERSION = "0.1.0"
+VERSION = (DESKTOP / "VERSION").read_text(encoding="ascii").strip()
+ASSETS = DESKTOP / "assets"
 
 
 def run(*args, **options):
@@ -29,13 +31,17 @@ def package(agenttrueup: Path, work: Path, output: Path) -> None:
     if system == "darwin":
         app = work / "文件改动记录.app"
         run("bash", DESKTOP / "build-mac.sh", agenttrueup, sys.executable, work / "build", app)
+        assert (app / "Contents/Resources/FileChangeDesk.icns").read_bytes().startswith(b"icns")
+        assert (app / "Contents/Resources/FileChangeDesk.png").read_bytes() == (ASSETS / "FileChangeDesk.png").read_bytes()
         run(sys.executable, DESKTOP / "smoke.py", app / "Contents/Resources/engine/changes-engine")
         archive = output / (package_name + ".zip")
         run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, archive)
     else:
         binary_name = "FileChangeDesk"
         distribution = work / "dist"
+        platform_icon = ["--icon", ASSETS / "FileChangeDesk.ico"] if system == "windows" else []
         run(sys.executable, "-m", "PyInstaller", "--noconfirm", "--onedir", "--windowed", "--name", binary_name,
+            *platform_icon, "--add-data", str(ASSETS / "FileChangeDesk-64.png") + ":assets",
             "--paths", REDHAND / "src", "--paths", agenttrueup / "src", "--specpath", work,
             "--workpath", work / "build", "--distpath", distribution, DESKTOP / "portable.py")
         bundle = distribution / binary_name
@@ -44,10 +50,20 @@ def package(agenttrueup: Path, work: Path, output: Path) -> None:
         shutil.copy2(REDHAND / "LICENSE", licenses / "redhand.txt")
         shutil.copy2(agenttrueup / "LICENSE", licenses / "agenttrueup.txt")
         executable = bundle / (binary_name + (".exe" if system == "windows" else ""))
+        if system == "windows":
+            import pefile
+
+            with pefile.PE(str(executable)) as pe:
+                resource, = [entry for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries if entry.id == 14]
+                group = resource.directory.entries[0].directory.entries[0].data.struct
+                header = pe.get_data(group.OffsetToData, group.Size)
+                assert struct.unpack_from("<HHH", header) == (0, 1, 7)
         readme = ("文件改动记录 / File Change Desk\n\n"
                   f"解压完整文件夹，打开 {executable.name}。点「试用演示」试用内置样例。\n"
                   "Extract the entire folder, open the executable, and choose 试用演示 to try the sample.\n")
         (bundle / "README.txt").write_text(readme, encoding="utf-8")
+        if system == "linux":
+            shutil.copy2(ASSETS / "FileChangeDesk.png", bundle / "FileChangeDesk.png")
         result = work / "smoke-result.txt"
         command = [executable, "--self-test", result]
         if system == "linux" and not os.environ.get("DISPLAY"):

@@ -362,10 +362,7 @@ struct DeskView: View {
 
     private var home: some View {
         VStack(alignment: .leading, spacing: 23) {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 42, weight: .medium)).foregroundStyle(teal)
-                .frame(width: 82, height: 82)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 22))
+            appIcon
             VStack(alignment: .leading, spacing: 13) {
                 Text("文件改动记录").font(.system(size: 46, weight: .semibold))
                 Text("看看文件被改了什么，\n需要时恢复到改动前。")
@@ -383,6 +380,18 @@ struct DeskView: View {
         .frame(maxWidth: 520, alignment: .leading)
         .padding(44)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder private var appIcon: some View {
+        if let imageURL = Bundle.main.url(forResource: "FileChangeDesk", withExtension: "png"),
+           let image = NSImage(contentsOf: imageURL) {
+            Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+                .frame(width: 94, height: 94).accessibilityHidden(true)
+        } else {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 42, weight: .medium)).foregroundStyle(teal)
+                .frame(width: 94, height: 94).accessibilityHidden(true)
+        }
     }
 
     private func desk(_ folder: Workspace) -> some View {
